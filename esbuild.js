@@ -29,13 +29,16 @@ function formatError(error) {
 }
 
 async function main() {
-  const context = await esbuild.context({
+  const extensionContext = await esbuild.context({
     entryPoints: ["src/extension.ts"],
     bundle: true,
     format: "cjs",
     platform: "node",
     outfile: "out/extension.js",
     external: ["vscode"],
+    define: {
+      "process.env.NODE_ENV": JSON.stringify(production ? "production" : "development")
+    },
     sourcemap: !production,
     minify: production,
     sourcesContent: false,
@@ -43,13 +46,42 @@ async function main() {
     plugins: [problemMatcherPlugin]
   });
 
+  const webviewContext = await esbuild.context({
+    entryPoints: ["src/webview/reviewPanel/index.tsx"],
+    bundle: true,
+    format: "iife",
+    platform: "browser",
+    outfile: "media/reviewPanel.js",
+    define: {
+      "process.env.NODE_ENV": JSON.stringify(production ? "production" : "development")
+    },
+    sourcemap: !production,
+    minify: production,
+    sourcesContent: false,
+    logLevel: "silent",
+    loader: {
+      ".woff": "file",
+      ".woff2": "file"
+    },
+    plugins: [problemMatcherPlugin]
+  });
+
   if (watch) {
-    await context.watch();
+    await Promise.all([
+      extensionContext.watch(),
+      webviewContext.watch()
+    ]);
     return;
   }
 
-  await context.rebuild();
-  await context.dispose();
+  await Promise.all([
+    extensionContext.rebuild(),
+    webviewContext.rebuild()
+  ]);
+  await Promise.all([
+    extensionContext.dispose(),
+    webviewContext.dispose()
+  ]);
 }
 
 main().catch((error) => {

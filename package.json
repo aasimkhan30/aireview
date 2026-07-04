@@ -4,13 +4,21 @@
   "description": "Collect review comments from Git changes and hand them off to Codex or GitHub Copilot Chat.",
   "version": "0.0.1",
   "publisher": "aaskhan",
+  "private": true,
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aasimkhan30/aireview.git"
+  },
   "engines": {
     "vscode": "^1.92.0"
   },
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:aireview.openReviewPanel"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -23,15 +31,27 @@
   "scripts": {
     "check-types": "tsc --noEmit",
     "compile": "npm run check-types && node esbuild.js",
+    "compile:production": "npm run check-types && node esbuild.js --production",
     "watch": "node esbuild.js --watch",
     "package": "vsce package",
-    "vscode:prepublish": "npm run compile"
+    "vscode:prepublish": "npm run compile:production"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "@types/vscode": "^1.92.0",
     "@vscode/vsce": "^2.31.1",
     "esbuild": "^0.23.0",
     "typescript": "^5.5.4"
+  },
+  "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.21.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "tailwind-merge": "^3.6.0",
+    "vscode-jsonrpc": "^9.0.0"
   }
 }

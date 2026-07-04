@@ -3,7 +3,10 @@
 src/**
 .gitignore
 tsconfig.json
+esbuild.js
 *.map
+**/*.map
 *.ts
+*.tsx
 node_modules/**
 out/test/**

@@ -1,0 +1,63 @@
+:root {
+	color-scheme: light dark;
+	font-family: var(--vscode-font-family);
+	font-size: var(--vscode-font-size);
+	line-height: 1.4;
+
+	/* shadcn-compatible theme tokens backed by VS Code workbench colors. */
+	--background: var(--vscode-editor-background);
+	--foreground: var(--vscode-foreground);
+	--card: var(--vscode-sideBar-background, var(--vscode-editorWidget-background, var(--background)));
+	--card-foreground: var(--vscode-sideBar-foreground, var(--foreground));
+	--popover: var(--vscode-editorWidget-background, var(--vscode-panel-background, var(--background)));
+	--popover-foreground: var(--vscode-editorWidget-foreground, var(--foreground));
+	--primary: var(--vscode-button-background);
+	--primary-foreground: var(--vscode-button-foreground);
+	--secondary: var(--vscode-button-secondaryBackground, var(--vscode-list-hoverBackground, transparent));
+	--secondary-foreground: var(--vscode-button-secondaryForeground, var(--foreground));
+	--muted: var(--vscode-editorWidget-background, var(--vscode-sideBar-background, var(--background)));
+	--muted-foreground: var(--vscode-descriptionForeground, var(--foreground));
+	--accent: var(--vscode-list-hoverBackground, var(--vscode-toolbar-hoverBackground, transparent));
+	--accent-foreground: var(--vscode-list-hoverForeground, var(--foreground));
+	--destructive: var(--vscode-inputValidation-errorBorder, #be1100);
+	--destructive-foreground: var(--vscode-errorForeground, var(--foreground));
+	--border: var(--vscode-panel-border, var(--vscode-editorWidget-border, var(--vscode-contrastBorder, transparent)));
+	--input: var(--vscode-input-border, var(--border));
+	--ring: var(--vscode-focusBorder);
+	--radius: 4px;
+
+	/* VS Code component aliases for local shadcn-style primitives. */
+	--ai-shell-background: var(--background);
+	--ai-panel-background: var(--vscode-sideBar-background, var(--vscode-panel-background, var(--card)));
+	--ai-panel-foreground: var(--vscode-sideBar-foreground, var(--foreground));
+	--ai-widget-background: var(--popover);
+	--ai-widget-foreground: var(--popover-foreground);
+	--ai-control-height: 28px;
+	--ai-control-height-sm: 24px;
+	--ai-control-padding-x: 8px;
+	--ai-control-radius: var(--radius);
+	--ai-list-hover-background: var(--vscode-list-hoverBackground, var(--accent));
+	--ai-list-hover-foreground: var(--vscode-list-hoverForeground, var(--foreground));
+	--ai-list-active-background: var(--vscode-list-activeSelectionBackground, var(--primary));
+	--ai-list-active-foreground: var(--vscode-list-activeSelectionForeground, var(--primary-foreground));
+	--ai-success: var(--vscode-testing-iconPassed, var(--vscode-terminal-ansiGreen, #2ea043));
+	--ai-success-background: color-mix(in srgb, var(--ai-success) 12%, transparent);
+	--ai-success-border: color-mix(in srgb, var(--ai-success) 40%, transparent);
+	--ai-separator: var(--vscode-panel-border, var(--vscode-sideBar-border, var(--border)));
+	--ai-shadow: 0 2px 8px var(--vscode-widget-shadow, transparent);
+}
+
+body.vscode-high-contrast,
+body.vscode-high-contrast-light {
+	--card: var(--background);
+	--popover: var(--background);
+	--muted: var(--background);
+	--accent: transparent;
+	--border: var(--vscode-contrastBorder);
+	--input: var(--vscode-contrastBorder);
+	--ai-panel-background: var(--background);
+	--ai-widget-background: var(--background);
+	--ai-list-hover-background: transparent;
+	--ai-success-background: transparent;
+	--ai-success-border: var(--vscode-contrastBorder);
+}

@@ -1,5 +1,6 @@
 node_modules/
 out/
+media/
 dist/
 *.vsix
 .vscode-test/
