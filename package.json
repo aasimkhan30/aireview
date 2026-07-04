@@ -1,0 +1,37 @@
+{
+  "name": "aireview",
+  "displayName": "AI Review Router",
+  "description": "Collect review comments from Git changes and hand them off to Codex or GitHub Copilot Chat.",
+  "version": "0.0.1",
+  "publisher": "aaskhan",
+  "engines": {
+    "vscode": "^1.92.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "aireview.openReviewPanel",
+        "title": "AI Review: Open Review Panel"
+      }
+    ]
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "compile": "npm run check-types && node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "vsce package",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@types/vscode": "^1.92.0",
+    "@vscode/vsce": "^2.31.1",
+    "esbuild": "^0.23.0",
+    "typescript": "^5.5.4"
+  }
+}
