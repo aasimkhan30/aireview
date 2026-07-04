@@ -11,32 +11,43 @@ import {
 	ReviewRpc,
 	type WorkspaceSnapshot
 } from "../common/reviewProtocol";
+import { AiReviewCommand, type CommandWithoutArguments } from "../common/commands";
+import { ICommandRegistrationService } from "../services/commandRegistrationService";
 import { IExtensionContextService } from "../services/extensionContextService";
 import { createServiceIdentifier } from "../util/di";
 import { ExtensionWebviewMessageReader, ExtensionWebviewMessageWriter } from "./webviewRpc";
 
 const reviewNotesStorageKey = "aireview.reviewNotes";
+export const openReviewPanelCommandId = AiReviewCommand.OpenReviewPanel;
+export const aiReviewViewId = "aireview.reviewView";
 
 export const IReviewPanelService = createServiceIdentifier<IReviewPanelService>("reviewPanelService");
 
-export interface IReviewPanelService {
+export interface IReviewPanelService extends vscode.WebviewViewProvider {
 	readonly _serviceBrand: undefined;
-	open(): void;
+	open(): Promise<void>;
 }
 
 export class ReviewPanelService implements IReviewPanelService {
 	declare readonly _serviceBrand: undefined;
 
-	private panel: vscode.WebviewPanel | undefined;
+	private view: vscode.WebviewView | undefined;
 	private connection: MessageConnection | undefined;
 	private lastTextEditor: vscode.TextEditor | undefined;
 
 	constructor(
-		@IExtensionContextService private readonly extensionContextService: IExtensionContextService
+		@IExtensionContextService private readonly extensionContextService: IExtensionContextService,
+		@ICommandRegistrationService private readonly commandRegistrationService: ICommandRegistrationService
 	) {
 		this.lastTextEditor = vscode.window.activeTextEditor;
 
 		const context = this.extensionContextService.context;
+		context.subscriptions.push(vscode.window.registerWebviewViewProvider(
+			aiReviewViewId,
+			this,
+			{ webviewOptions: { retainContextWhenHidden: true } }
+		));
+		this.commandRegistrationService.registerCommand(openReviewPanelCommandId, () => this.open());
 		context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(editor => {
 			if (editor) {
 				this.lastTextEditor = editor;
@@ -49,41 +60,64 @@ export class ReviewPanelService implements IReviewPanelService {
 		}));
 	}
 
-	open(): void {
+	async open(): Promise<void> {
 		this.captureActiveTextEditor();
 
-		if (this.panel) {
-			this.panel.reveal(vscode.ViewColumn.Beside);
-			void this.publishState();
+		if (this.view) {
+			this.view.show(false);
+			await this.publishState();
 			return;
 		}
 
-		const context = this.extensionContextService.context;
-		const panel = vscode.window.createWebviewPanel(
-			"aireview.reviewPanel",
-			"AI Review",
-			vscode.ViewColumn.Beside,
-			{
-				enableScripts: true,
-				retainContextWhenHidden: true,
-				localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "media")]
-			}
+		await this.executeFirstAvailableCommand(
+			AiReviewCommand.ReviewViewFocus,
+			AiReviewCommand.ReviewViewOpen
 		);
+		await this.publishState();
+	}
 
-		this.panel = panel;
+	private async executeFirstAvailableCommand(...commandIds: CommandWithoutArguments[]): Promise<void> {
+		const commands = await this.commandRegistrationService.getCommands(true);
+		const commandId = commandIds.find(id => commands.includes(id));
+		if (!commandId) {
+			throw new Error(`AI Review view command not found. Tried: ${commandIds.join(", ")}`);
+		}
 
-		const reader = new ExtensionWebviewMessageReader(panel.webview);
-		const writer = new ExtensionWebviewMessageWriter(panel.webview);
+		await this.commandRegistrationService.executeCommand(commandId);
+	}
+
+	resolveWebviewView(webviewView: vscode.WebviewView): void {
+		const context = this.extensionContextService.context;
+		this.connection?.dispose();
+		this.view = webviewView;
+
+		webviewView.webview.options = {
+			enableScripts: true,
+			localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "media")]
+		};
+
+		const reader = new ExtensionWebviewMessageReader(webviewView.webview);
+		const writer = new ExtensionWebviewMessageWriter(webviewView.webview);
 		const connection = createMessageConnection(reader, writer);
 		this.connection = connection;
 		this.registerRpcHandlers(connection);
 		connection.listen();
-		panel.webview.html = this.getHtml(panel.webview);
+		webviewView.webview.html = this.getHtml(webviewView.webview);
 
-		panel.onDidDispose(() => {
+		webviewView.onDidChangeVisibility(() => {
+			if (webviewView.visible) {
+				void this.publishState();
+			}
+		});
+
+		webviewView.onDidDispose(() => {
 			connection.dispose();
-			this.connection = undefined;
-			this.panel = undefined;
+			if (this.connection === connection) {
+				this.connection = undefined;
+			}
+			if (this.view === webviewView) {
+				this.view = undefined;
+			}
 		});
 	}
 
@@ -128,14 +162,15 @@ export class ReviewPanelService implements IReviewPanelService {
 
 	private async publishState(): Promise<void> {
 		const connection = this.connection;
-		if (!connection || !this.panel) {
+		const view = this.view;
+		if (!connection || !view?.visible) {
 			return;
 		}
 
 		try {
 			await connection.sendNotification(ReviewRpc.stateChanged, await this.getState());
 		} catch (error) {
-			if (this.connection === connection && this.panel) {
+			if (this.connection === connection && this.view === view && view.visible) {
 				console.error("Failed to publish AI Review panel state", error);
 			}
 		}
@@ -145,8 +180,28 @@ export class ReviewPanelService implements IReviewPanelService {
 		return {
 			workspace: await this.getWorkspaceSnapshot(),
 			notes: this.getNotes(),
-			agentTargets: await getAgentTargets()
+			agentTargets: await this.getAgentTargets()
 		};
+	}
+
+	private async getAgentTargets(): Promise<AgentTarget[]> {
+		const commands = await this.commandRegistrationService.getCommands(true);
+		return [
+			{
+				id: "codex",
+				label: "Codex",
+				available: false,
+				detail: commands.includes(AiReviewCommand.CodexOpenSidebar)
+					? "Codex command bridge detected; handoff not wired yet"
+					: "Pending command integration"
+			},
+			{
+				id: "copilot",
+				label: "Copilot Chat",
+				available: commands.includes(AiReviewCommand.CopilotCliOpenInCopilotCli),
+				detail: "GitHub Copilot extension command bridge"
+			}
+		];
 	}
 
 	private getNotes(): ReviewNote[] {
@@ -225,24 +280,6 @@ function toReviewRange(range: vscode.Range): ReviewRange {
 		endLine: range.end.line + 1,
 		endCharacter: range.end.character + 1
 	};
-}
-
-async function getAgentTargets(): Promise<AgentTarget[]> {
-	const commands = await vscode.commands.getCommands(true);
-	return [
-		{
-			id: "codex",
-			label: "Codex",
-			available: false,
-			detail: "Pending command integration"
-		},
-		{
-			id: "copilot",
-			label: "Copilot Chat",
-			available: commands.includes("github.copilot.cli.openInCopilotCLI"),
-			detail: "GitHub Copilot extension command bridge"
-		}
-	];
 }
 
 async function getGitBranch(cwd: string | undefined): Promise<string | undefined> {

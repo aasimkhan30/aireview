@@ -17,16 +17,35 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:aireview.openReviewPanel"
+    "onCommand:aireview.openReviewPanel",
+    "onView:aireview.reviewView"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
         "command": "aireview.openReviewPanel",
-        "title": "AI Review: Open Review Panel"
+        "title": "AI Review: Open Review View"
       }
-    ]
+    ],
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "aireview",
+          "title": "AI Review",
+          "icon": "$(comment-discussion)"
+        }
+      ]
+    },
+    "views": {
+      "aireview": [
+        {
+          "type": "webview",
+          "id": "aireview.reviewView",
+          "name": "Review Notes"
+        }
+      ]
+    }
   },
   "scripts": {
     "check-types": "tsc --noEmit",
