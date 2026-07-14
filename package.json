@@ -59,7 +59,7 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "test:integration": "npm run compile:production && node scripts/run-integration-tests.mjs",
-    "package:check": "vsce ls",
+    "package:check": "node scripts/check-package-contents.mjs",
     "watch": "node esbuild.js --watch",
     "package": "vsce package",
     "vscode:prepublish": "npm run compile:production"

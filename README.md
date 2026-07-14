@@ -12,7 +12,7 @@ Reusable webview infrastructure is split between a surface-neutral `WebviewSessi
 
 ## Development
 
-Use Node.js 22.13 or newer, then install the locked dependencies:
+Use Node.js 26, then install the locked dependencies:
 
 ```powershell
 npm ci
@@ -26,7 +26,7 @@ Before submitting a change, run the complete local verification gate:
 npm run check
 ```
 
-The gate checks formatting and linting, runs unit tests, type-checks and builds the production bundles, launches a VS Code 1.125 Extension Host smoke test, and validates the packaged file list. The first integration-test run downloads the configured VS Code version into `.vscode-test/`.
+The gate checks formatting and linting, runs unit tests, type-checks and builds the production bundles, launches a VS Code 1.125 Extension Host smoke test, and validates the packaged file list, including third-party license notices. The first integration-test run downloads the configured VS Code version into `.vscode-test/`.
 
 Useful focused commands:
 

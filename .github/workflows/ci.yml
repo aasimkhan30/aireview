@@ -17,12 +17,12 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22.13.0
+          node-version: 26
           cache: npm
 
       - name: Install dependencies
@@ -30,3 +30,21 @@ jobs:
 
       - name: Run verification gate
         run: xvfb-run -a npm run check
+
+      - name: Build VSIX
+        run: npm run package -- --out aireview.vsix
+
+      - name: Upload VSIX
+        id: upload-vsix
+        uses: actions/upload-artifact@v7
+        with:
+          path: aireview.vsix
+          if-no-files-found: error
+          archive: false
+
+      - name: Add VSIX to job summary
+        env:
+          ARTIFACT_DIGEST: ${{ steps.upload-vsix.outputs.artifact-digest }}
+          ARTIFACT_URL: ${{ steps.upload-vsix.outputs.artifact-url }}
+        run: |
+          printf '## Built VSIX\n\n[Download aireview.vsix](%s)\n\nSHA-256: %s\n' "$ARTIFACT_URL" "$ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"
