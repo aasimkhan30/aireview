@@ -1,71 +1,87 @@
 import * as React from "react";
 import { FileText, MessageSquare, Plus, RefreshCw, Send, Trash2 } from "lucide-react";
 import type { MessageConnection } from "vscode-jsonrpc/browser";
-import { type ReviewNote, type ReviewPanelState, ReviewRpc } from "../../common/reviewProtocol";
-import { createReviewPanelConnection } from "./rpc";
+import { type ReviewNote, type ReviewPanelStateEnvelope, ReviewRpc } from "../../common/reviewProtocol";
+import { shouldAcceptStateEnvelope } from "../../common/webviewProtocol";
+import { usePersistedWebviewState } from "../usePersistedWebviewState";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { Textarea } from "./components/ui/textarea";
 
-export function App() {
-	const [connection, setConnection] = React.useState<MessageConnection | undefined>();
-	const [state, setState] = React.useState<ReviewPanelState | undefined>();
-	const [draft, setDraft] = React.useState("");
+export interface AppProps {
+	readonly connection: MessageConnection;
+}
+
+interface ReviewUiStateV1 {
+	readonly version: 1;
+	readonly draft: string;
+}
+
+type RemoteReviewState =
+	| { readonly status: "loading" }
+	| { readonly status: "ready"; readonly envelope: ReviewPanelStateEnvelope }
+	| { readonly status: "error"; readonly message: string };
+
+type RemoteReviewAction =
+	| { readonly type: "received"; readonly envelope: ReviewPanelStateEnvelope }
+	| { readonly type: "failed"; readonly error: unknown };
+
+export function App({ connection }: AppProps) {
+	const [remoteState, dispatchRemoteState] = React.useReducer(reduceRemoteReviewState, { status: "loading" });
+	const [uiState, setUiState] = usePersistedWebviewState(normalizeReviewUiState);
 	const [busy, setBusy] = React.useState(false);
 
 	React.useEffect(() => {
 		let disposed = false;
-		const nextConnection = createReviewPanelConnection();
-		nextConnection.onNotification(ReviewRpc.stateChanged, (nextState: ReviewPanelState) => {
+		const stateChanged = connection.onNotification(ReviewRpc.stateChanged, (envelope) => {
 			if (disposed) {
 				return;
 			}
-			setState(nextState);
+			dispatchRemoteState({ type: "received", envelope });
 		});
-		nextConnection.listen();
-		// The connection is an external resource created and disposed with this effect.
-		// eslint-disable-next-line react-hooks/set-state-in-effect
-		setConnection(nextConnection);
 
-		void nextConnection
-			.sendRequest<ReviewPanelState>(ReviewRpc.getState)
-			.then((nextState) => {
+		void connection
+			.sendRequest(ReviewRpc.getState)
+			.then((envelope) => {
 				if (!disposed) {
-					setState(nextState);
+					dispatchRemoteState({ type: "received", envelope });
 				}
 			})
 			.catch((error) => {
 				if (!disposed) {
-					console.error("Failed to load review panel state", error);
+					dispatchRemoteState({ type: "failed", error });
 				}
 			});
 
 		return () => {
 			disposed = true;
-			nextConnection.dispose();
+			stateChanged.dispose();
 		};
-	}, []);
+	}, [connection]);
 
+	const state = remoteState.status === "ready" ? remoteState.envelope.value : undefined;
+	const draft = uiState.draft;
 	const activeFile = state?.workspace.activeFile;
-	const canSubmit = draft.trim().length > 0 && Boolean(connection) && !busy;
+	const canSubmit = draft.trim().length > 0 && !busy;
+
+	function setDraft(draft: string): void {
+		setUiState((current) => ({ ...current, draft }));
+	}
 
 	async function refresh(): Promise<void> {
-		if (!connection) {
-			return;
-		}
-
-		setState(await connection.sendRequest<ReviewPanelState>(ReviewRpc.getState));
+		dispatchRemoteState({ type: "received", envelope: await connection.sendRequest(ReviewRpc.getState) });
 	}
 
 	async function addNote(): Promise<void> {
-		if (!connection || !canSubmit) {
+		if (!canSubmit) {
 			return;
 		}
 
 		setBusy(true);
 		try {
-			await connection.sendRequest<ReviewNote>(ReviewRpc.addNote, { body: draft });
+			const envelope = await connection.sendRequest(ReviewRpc.addNote, { body: draft });
+			dispatchRemoteState({ type: "received", envelope });
 			setDraft("");
 		} finally {
 			setBusy(false);
@@ -73,11 +89,8 @@ export function App() {
 	}
 
 	async function deleteNote(id: string): Promise<void> {
-		if (!connection) {
-			return;
-		}
-
-		await connection.sendRequest<boolean>(ReviewRpc.deleteNote, { id });
+		const envelope = await connection.sendRequest(ReviewRpc.deleteNote, { id });
+		dispatchRemoteState({ type: "received", envelope });
 	}
 
 	return (
@@ -91,6 +104,11 @@ export function App() {
 					<RefreshCw aria-hidden="true" size={16} />
 				</Button>
 			</header>
+			{remoteState.status === "error" ? (
+				<div className="empty-state" role="alert">
+					Unable to load review state: {remoteState.message}
+				</div>
+			) : undefined}
 
 			<section className="workspace-strip" aria-label="Workspace">
 				<div>
@@ -191,6 +209,33 @@ export function App() {
 			</section>
 		</main>
 	);
+}
+
+function reduceRemoteReviewState(state: RemoteReviewState, action: RemoteReviewAction): RemoteReviewState {
+	if (action.type === "failed") {
+		return state.status === "ready" ? state : { status: "error", message: getErrorMessage(action.error) };
+	}
+
+	if (state.status === "ready" && !shouldAcceptStateEnvelope(state.envelope, action.envelope)) {
+		return state;
+	}
+
+	return { status: "ready", envelope: action.envelope };
+}
+
+function normalizeReviewUiState(value: unknown): ReviewUiStateV1 {
+	if (value && typeof value === "object") {
+		const state = value as Partial<ReviewUiStateV1>;
+		if (state.version === 1 && typeof state.draft === "string") {
+			return { version: 1, draft: state.draft };
+		}
+	}
+
+	return { version: 1, draft: "" };
+}
+
+function getErrorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : "Unknown error";
 }
 
 function formatSelection(line: number | undefined): string {

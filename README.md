@@ -4,6 +4,12 @@ AI Review Router is a VS Code extension for collecting code-change review notes 
 
 This repository currently contains the initial extension scaffold. The review capture, session detection, and agent handoff flows will be added incrementally.
 
+## Architecture
+
+The extension host owns review-domain state and persistence. Webview clients receive revisioned snapshots over typed JSON-RPC and persist only ephemeral UI state, such as an unfinished draft.
+
+Reusable webview infrastructure is split between a surface-neutral `WebviewSession` and a `WebviewViewHost` for the current sidebar contribution. This keeps HTML, CSP, resource, transport, visibility, and disposal behavior reusable by a future `WebviewPanel` host without implementing that host prematurely.
+
 ## Development
 
 Use Node.js 22.13 or newer, then install the locked dependencies:

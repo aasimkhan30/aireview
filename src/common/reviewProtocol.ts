@@ -1,22 +1,20 @@
-export const rpcEnvelopeKind = "aireview.jsonrpc";
+import { NotificationType, RequestType, RequestType0 } from "vscode-jsonrpc";
+import type { StateEnvelope } from "./webviewProtocol";
 
 export const ReviewRpc = {
-	getState: "aireview.review.getState",
-	addNote: "aireview.review.addNote",
-	deleteNote: "aireview.review.deleteNote",
-	stateChanged: "aireview.review.stateChanged"
+	getState: new RequestType0<ReviewPanelStateEnvelope, void>("aireview.review.getState"),
+	addNote: new RequestType<AddReviewNoteParams, ReviewPanelStateEnvelope, void>("aireview.review.addNote"),
+	deleteNote: new RequestType<DeleteReviewNoteParams, ReviewPanelStateEnvelope, void>("aireview.review.deleteNote"),
+	stateChanged: new NotificationType<ReviewPanelStateEnvelope>("aireview.review.stateChanged")
 } as const;
-
-export interface RpcEnvelope {
-	readonly kind: typeof rpcEnvelopeKind;
-	readonly payload: unknown;
-}
 
 export interface ReviewPanelState {
 	readonly workspace: WorkspaceSnapshot;
 	readonly notes: readonly ReviewNote[];
 	readonly agentTargets: readonly AgentTarget[];
 }
+
+export type ReviewPanelStateEnvelope = StateEnvelope<ReviewPanelState>;
 
 export interface WorkspaceSnapshot {
 	readonly name: string;
@@ -63,13 +61,4 @@ export interface AgentTarget {
 	readonly label: string;
 	readonly available: boolean;
 	readonly detail: string;
-}
-
-export function isRpcEnvelope(value: unknown): value is RpcEnvelope {
-	return Boolean(
-		value &&
-		typeof value === "object" &&
-		(value as Partial<RpcEnvelope>).kind === rpcEnvelopeKind &&
-		"payload" in value
-	);
 }

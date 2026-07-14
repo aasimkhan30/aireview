@@ -1,4 +1,4 @@
-import * as vscode from "vscode";
+import type * as vscode from "vscode";
 import { createServiceIdentifier } from "../util/di";
 
 export const IExtensionContextService = createServiceIdentifier<IExtensionContextService>("extensionContextService");

@@ -10,6 +10,7 @@ async function run() {
 
 	const commands = await vscode.commands.getCommands(true);
 	assert.ok(commands.includes("aireview.openReviewPanel"));
+	await vscode.commands.executeCommand("aireview.openReviewPanel");
 
 	console.log("AI Review Extension Host smoke test passed");
 }

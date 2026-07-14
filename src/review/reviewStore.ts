@@ -1,0 +1,127 @@
+import type { ReviewNote } from "../common/reviewProtocol";
+import { Emitter, type Event } from "../common/emitter";
+import { IExtensionContextService } from "../services/extensionContextService";
+import { createServiceIdentifier } from "../util/di";
+import { Disposable } from "../util/vs/base/common/lifecycle";
+import { isReviewNote } from "./reviewValidation";
+
+const reviewStateStorageKey = "aireview.reviewState";
+
+export interface PersistedReviewStateV1 {
+	readonly version: 1;
+	readonly notes: readonly ReviewNote[];
+}
+
+export const IReviewStore = createServiceIdentifier<IReviewStore>("reviewStore");
+
+export interface IReviewStore {
+	readonly _serviceBrand: undefined;
+	readonly onDidChange: Event<PersistedReviewStateV1>;
+	getState(): Promise<PersistedReviewStateV1>;
+	addNote(note: ReviewNote): Promise<void>;
+	deleteNote(id: string): Promise<boolean>;
+}
+
+export class ReviewStore extends Disposable implements IReviewStore {
+	declare readonly _serviceBrand: undefined;
+
+	private readonly changeEmitter = this._register(new Emitter<PersistedReviewStateV1>());
+	readonly onDidChange = this.changeEmitter.event;
+
+	private state: PersistedReviewStateV1 | undefined;
+	private loadingState: Promise<PersistedReviewStateV1> | undefined;
+	private mutationQueue: Promise<void> = Promise.resolve();
+
+	constructor(@IExtensionContextService private readonly extensionContextService: IExtensionContextService) {
+		super();
+	}
+
+	async getState(): Promise<PersistedReviewStateV1> {
+		await this.mutationQueue;
+		return this.loadState();
+	}
+
+	async addNote(note: ReviewNote): Promise<void> {
+		await this.enqueueMutation(async (current) => ({
+			state: { version: 1, notes: [note, ...current.notes] },
+			result: undefined
+		}));
+	}
+
+	deleteNote(id: string): Promise<boolean> {
+		return this.enqueueMutation(async (current) => {
+			const notes = current.notes.filter((note) => note.id !== id);
+			return notes.length === current.notes.length
+				? { state: current, result: false }
+				: { state: { version: 1, notes }, result: true };
+		});
+	}
+
+	private enqueueMutation<T>(
+		operation: (current: PersistedReviewStateV1) => Promise<{ state: PersistedReviewStateV1; result: T }>
+	): Promise<T> {
+		const result = this.mutationQueue.then(async () => {
+			const current = await this.loadState();
+			const outcome = await operation(current);
+			if (outcome.state !== current) {
+				await this.extensionContextService.context.workspaceState.update(reviewStateStorageKey, outcome.state);
+				this.state = outcome.state;
+				this.changeEmitter.fire(outcome.state);
+			}
+			return outcome.result;
+		});
+
+		this.mutationQueue = result.then(
+			() => undefined,
+			() => undefined
+		);
+		return result;
+	}
+
+	private loadState(): Promise<PersistedReviewStateV1> {
+		if (this.state) {
+			return Promise.resolve(this.state);
+		}
+
+		if (!this.loadingState) {
+			const loadingState = this.readState();
+			this.loadingState = loadingState;
+			void loadingState.then(undefined, () => {
+				if (this.loadingState === loadingState) {
+					this.loadingState = undefined;
+				}
+			});
+		}
+		return this.loadingState;
+	}
+
+	private async readState(): Promise<PersistedReviewStateV1> {
+		const storage = this.extensionContextService.context.workspaceState;
+		const stored = normalizePersistedState(storage.get<unknown>(reviewStateStorageKey));
+		if (stored) {
+			this.state = stored;
+			return stored;
+		}
+
+		const initialState: PersistedReviewStateV1 = {
+			version: 1,
+			notes: []
+		};
+		await storage.update(reviewStateStorageKey, initialState);
+		this.state = initialState;
+		return initialState;
+	}
+}
+
+function normalizePersistedState(value: unknown): PersistedReviewStateV1 | undefined {
+	if (!value || typeof value !== "object") {
+		return undefined;
+	}
+
+	const state = value as Partial<PersistedReviewStateV1>;
+	if (state.version !== 1 || !Array.isArray(state.notes)) {
+		return undefined;
+	}
+
+	return { version: 1, notes: state.notes.filter(isReviewNote) };
+}

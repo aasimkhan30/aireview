@@ -1,4 +1,4 @@
-import * as vscode from "vscode";
+import type * as vscode from "vscode";
 import {
 	AbstractMessageReader,
 	AbstractMessageWriter,
@@ -8,7 +8,7 @@ import {
 	type MessageReader,
 	type MessageWriter
 } from "vscode-jsonrpc/node";
-import { isRpcEnvelope, rpcEnvelopeKind } from "../common/reviewProtocol";
+import { isRpcEnvelope, rpcEnvelopeKind } from "../common/webviewProtocol";
 
 export class ExtensionWebviewMessageReader extends AbstractMessageReader implements MessageReader {
 	constructor(private readonly webview: vscode.Webview) {
@@ -17,11 +17,9 @@ export class ExtensionWebviewMessageReader extends AbstractMessageReader impleme
 
 	listen(callback: DataCallback): Disposable {
 		const disposable = this.webview.onDidReceiveMessage((message: unknown) => {
-			if (!isRpcEnvelope(message)) {
-				return;
+			if (isRpcEnvelope(message)) {
+				callback(message.payload as Message);
 			}
-
-			callback(message.payload as Message);
 		});
 
 		return { dispose: () => disposable.dispose() };
