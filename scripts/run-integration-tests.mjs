@@ -10,7 +10,7 @@ delete process.env.ELECTRON_RUN_AS_NODE;
 
 try {
 	await runTests({
-		version: "1.92.0",
+		version: "1.125.0",
 		extensionDevelopmentPath: repositoryRoot,
 		extensionTestsPath: path.join(repositoryRoot, "test", "integration", "index.cjs"),
 		launchArgs: ["--disable-extensions"]
