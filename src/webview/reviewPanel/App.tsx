@@ -4,6 +4,7 @@ import type { MessageConnection } from "vscode-jsonrpc/browser";
 import { type ReviewNote, type ReviewPanelStateEnvelope, ReviewRpc } from "../../common/reviewProtocol";
 import { shouldAcceptStateEnvelope } from "../../common/webviewProtocol";
 import { usePersistedWebviewState } from "../usePersistedWebviewState";
+import type { WebviewDiagnostics } from "../webviewDiagnostics";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
@@ -11,6 +12,7 @@ import { Textarea } from "./components/ui/textarea";
 
 export interface AppProps {
 	readonly connection: MessageConnection;
+	readonly diagnostics: WebviewDiagnostics;
 }
 
 interface ReviewUiStateV1 {
@@ -27,7 +29,7 @@ type RemoteReviewAction =
 	| { readonly type: "received"; readonly envelope: ReviewPanelStateEnvelope }
 	| { readonly type: "failed"; readonly error: unknown };
 
-export function App({ connection }: AppProps) {
+export function App({ connection, diagnostics }: AppProps) {
 	const [remoteState, dispatchRemoteState] = React.useReducer(reduceRemoteReviewState, { status: "loading" });
 	const [uiState, setUiState] = usePersistedWebviewState(normalizeReviewUiState);
 	const [busy, setBusy] = React.useState(false);
@@ -38,17 +40,21 @@ export function App({ connection }: AppProps) {
 			if (disposed) {
 				return;
 			}
+			diagnostics.debug("state.changed", diagnosticStateData(envelope));
 			dispatchRemoteState({ type: "received", envelope });
 		});
 
+		const operation = diagnostics.startOperation("state.load");
 		void connection
 			.sendRequest(ReviewRpc.getState)
 			.then((envelope) => {
+				operation.complete(diagnosticStateData(envelope));
 				if (!disposed) {
 					dispatchRemoteState({ type: "received", envelope });
 				}
 			})
 			.catch((error) => {
+				operation.fail(error);
 				if (!disposed) {
 					dispatchRemoteState({ type: "failed", error });
 				}
@@ -58,7 +64,7 @@ export function App({ connection }: AppProps) {
 			disposed = true;
 			stateChanged.dispose();
 		};
-	}, [connection]);
+	}, [connection, diagnostics]);
 
 	const state = remoteState.status === "ready" ? remoteState.envelope.value : undefined;
 	const draft = uiState.draft;
@@ -70,7 +76,15 @@ export function App({ connection }: AppProps) {
 	}
 
 	async function refresh(): Promise<void> {
-		dispatchRemoteState({ type: "received", envelope: await connection.sendRequest(ReviewRpc.getState) });
+		const operation = diagnostics.startOperation("state.refresh");
+		try {
+			const envelope = await connection.sendRequest(ReviewRpc.getState);
+			operation.complete(diagnosticStateData(envelope));
+			dispatchRemoteState({ type: "received", envelope });
+		} catch (error) {
+			operation.fail(error);
+			throw error;
+		}
 	}
 
 	async function addNote(): Promise<void> {
@@ -79,18 +93,30 @@ export function App({ connection }: AppProps) {
 		}
 
 		setBusy(true);
+		const operation = diagnostics.startOperation("note.add");
 		try {
 			const envelope = await connection.sendRequest(ReviewRpc.addNote, { body: draft });
+			operation.complete(diagnosticStateData(envelope));
 			dispatchRemoteState({ type: "received", envelope });
 			setDraft("");
+		} catch (error) {
+			operation.fail(error);
+			throw error;
 		} finally {
 			setBusy(false);
 		}
 	}
 
 	async function deleteNote(id: string): Promise<void> {
-		const envelope = await connection.sendRequest(ReviewRpc.deleteNote, { id });
-		dispatchRemoteState({ type: "received", envelope });
+		const operation = diagnostics.startOperation("note.delete");
+		try {
+			const envelope = await connection.sendRequest(ReviewRpc.deleteNote, { id });
+			operation.complete(diagnosticStateData(envelope));
+			dispatchRemoteState({ type: "received", envelope });
+		} catch (error) {
+			operation.fail(error);
+			throw error;
+		}
 	}
 
 	return (
@@ -236,6 +262,14 @@ function normalizeReviewUiState(value: unknown): ReviewUiStateV1 {
 
 function getErrorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : "Unknown error";
+}
+
+function diagnosticStateData(envelope: ReviewPanelStateEnvelope) {
+	return {
+		revision: envelope.revision,
+		noteCount: envelope.value.notes.length,
+		hasActiveFile: envelope.value.workspace.activeFile !== undefined
+	};
 }
 
 function formatSelection(line: number | undefined): string {

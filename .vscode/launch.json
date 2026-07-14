@@ -6,6 +6,12 @@
       "type": "extensionHost",
       "request": "launch",
       "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+      "env": {
+        "AIREVIEW_LOG_LEVEL": "debug",
+        "AIREVIEW_LOG_AREAS": "lifecycle,diagnostics,reviewStore,reviewState,git,commands,webview",
+        "AIREVIEW_LOG_DIRECTORY": ".artifacts",
+        "AIREVIEW_LOG_FILE": "{runId}.ndjson"
+      },
       "outFiles": ["${workspaceFolder}/out/**/*.js"],
       "preLaunchTask": "npm: watch"
     },
@@ -17,6 +23,12 @@
         "--extensionDevelopmentPath=${workspaceFolder}",
         "--extensionTestsPath=${workspaceFolder}/test/integration/index.cjs"
       ],
+      "env": {
+        "AIREVIEW_LOG_LEVEL": "info",
+        "AIREVIEW_LOG_AREAS": "lifecycle,diagnostics,reviewStore,reviewState,git,commands,webview",
+        "AIREVIEW_LOG_DIRECTORY": ".artifacts",
+        "AIREVIEW_LOG_FILE": "{runId}.ndjson"
+      },
       "outFiles": ["${workspaceFolder}/out/**/*.js"],
       "preLaunchTask": "npm: compile:production"
     }

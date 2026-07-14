@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { MessageConnection } from "vscode-jsonrpc/node";
+import type { IDiagnosticsService } from "../diagnostics/diagnosticsService";
 import { Disposable, type IDisposable } from "../util/vs/base/common/lifecycle";
 import type { WebviewContentDefinition } from "./webviewContent";
 import { WebviewSession } from "./webviewSession";
@@ -8,6 +9,7 @@ import type { WebviewSurface } from "./webviewSurface";
 export interface WebviewViewHostOptions {
 	readonly viewId: string;
 	readonly extensionUri: vscode.Uri;
+	readonly diagnostics: IDiagnosticsService;
 	readonly content: WebviewContentDefinition;
 	readonly retainContextWhenHidden?: boolean;
 	readonly createController: (connection: MessageConnection, surface: WebviewSurface) => IDisposable;
@@ -34,6 +36,7 @@ export class WebviewViewHost extends Disposable implements vscode.WebviewViewPro
 		token: vscode.CancellationToken
 	): void {
 		if (token.isCancellationRequested) {
+			this.options.diagnostics.debug("webview", "view.resolve.cancelled");
 			return;
 		}
 
@@ -42,6 +45,7 @@ export class WebviewViewHost extends Disposable implements vscode.WebviewViewPro
 		const surface = new WebviewViewSurface(webviewView);
 		const session = new WebviewSession(surface, {
 			extensionUri: this.options.extensionUri,
+			diagnostics: this.options.diagnostics,
 			content: this.options.content,
 			createController: this.options.createController,
 			onDidBecomeVisible: this.options.onDidBecomeVisible,
@@ -53,6 +57,7 @@ export class WebviewViewHost extends Disposable implements vscode.WebviewViewPro
 			}
 		});
 		this.session = session;
+		this.options.diagnostics.info("webview", "view.resolved");
 	}
 
 	show(preserveFocus = false): boolean {
@@ -61,6 +66,7 @@ export class WebviewViewHost extends Disposable implements vscode.WebviewViewPro
 		}
 
 		this.view.show(preserveFocus);
+		this.options.diagnostics.debug("webview", "view.shown", () => ({ preserveFocus }));
 		return true;
 	}
 

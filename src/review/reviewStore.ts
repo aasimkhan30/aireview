@@ -1,4 +1,5 @@
 import type { ReviewNote } from "../common/reviewProtocol";
+import { IDiagnosticsService } from "../diagnostics/diagnosticsService";
 import { Emitter, type Event } from "../common/emitter";
 import { IExtensionContextService } from "../services/extensionContextService";
 import { createServiceIdentifier } from "../util/di";
@@ -32,29 +33,55 @@ export class ReviewStore extends Disposable implements IReviewStore {
 	private loadingState: Promise<PersistedReviewStateV1> | undefined;
 	private mutationQueue: Promise<void> = Promise.resolve();
 
-	constructor(@IExtensionContextService private readonly extensionContextService: IExtensionContextService) {
+	constructor(
+		@IExtensionContextService private readonly extensionContextService: IExtensionContextService,
+		@IDiagnosticsService private readonly diagnostics: IDiagnosticsService
+	) {
 		super();
 	}
 
 	async getState(): Promise<PersistedReviewStateV1> {
-		await this.mutationQueue;
-		return this.loadState();
+		const operation = this.diagnostics.startOperation("reviewStore", "state.get");
+		try {
+			await this.mutationQueue;
+			const state = await this.loadState();
+			operation.complete(() => ({ noteCount: state.notes.length }));
+			return state;
+		} catch (error) {
+			operation.fail(error);
+			throw error;
+		}
 	}
 
 	async addNote(note: ReviewNote): Promise<void> {
-		await this.enqueueMutation(async (current) => ({
-			state: { version: 1, notes: [note, ...current.notes] },
-			result: undefined
-		}));
+		const operation = this.diagnostics.startOperation("reviewStore", "note.add");
+		try {
+			await this.enqueueMutation(async (current) => ({
+				state: { version: 1, notes: [note, ...current.notes] },
+				result: undefined
+			}));
+			operation.complete(() => ({ noteId: note.id }));
+		} catch (error) {
+			operation.fail(error, () => ({ noteId: note.id }));
+			throw error;
+		}
 	}
 
-	deleteNote(id: string): Promise<boolean> {
-		return this.enqueueMutation(async (current) => {
-			const notes = current.notes.filter((note) => note.id !== id);
-			return notes.length === current.notes.length
-				? { state: current, result: false }
-				: { state: { version: 1, notes }, result: true };
-		});
+	async deleteNote(id: string): Promise<boolean> {
+		const operation = this.diagnostics.startOperation("reviewStore", "note.delete");
+		try {
+			const deleted = await this.enqueueMutation(async (current) => {
+				const notes = current.notes.filter((note) => note.id !== id);
+				return notes.length === current.notes.length
+					? { state: current, result: false }
+					: { state: { version: 1, notes }, result: true };
+			});
+			operation.complete(() => ({ noteId: id, deleted }));
+			return deleted;
+		} catch (error) {
+			operation.fail(error, () => ({ noteId: id }));
+			throw error;
+		}
 	}
 
 	private enqueueMutation<T>(
@@ -100,6 +127,7 @@ export class ReviewStore extends Disposable implements IReviewStore {
 		const stored = normalizePersistedState(storage.get<unknown>(reviewStateStorageKey));
 		if (stored) {
 			this.state = stored;
+			this.diagnostics.debug("reviewStore", "state.loaded", () => ({ noteCount: stored.notes.length }));
 			return stored;
 		}
 
@@ -109,6 +137,7 @@ export class ReviewStore extends Disposable implements IReviewStore {
 		};
 		await storage.update(reviewStateStorageKey, initialState);
 		this.state = initialState;
+		this.diagnostics.info("reviewStore", "state.initialized");
 		return initialState;
 	}
 }

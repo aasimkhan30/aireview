@@ -1,22 +1,45 @@
 import * as vscode from "vscode";
-import { CommandRegistrationService, ICommandRegistrationService } from "./services/commandRegistrationService";
-import { ExtensionContextService, IExtensionContextService } from "./services/extensionContextService";
-import { IReviewPanelStateService, ReviewPanelStateService } from "./review/reviewPanelStateService";
-import { IReviewStore, ReviewStore } from "./review/reviewStore";
-import { IReviewViewService, ReviewViewService } from "./review/reviewViewService";
-import { InstantiationServiceBuilder, SyncDescriptor } from "./util/di";
+import { createDiagnosticsRecorder, readDiagnosticsLaunchConfig } from "./diagnostics/bootstrapDiagnostics";
+import type { DiagnosticsRecorder } from "./diagnostics/diagnostics";
+import type { ExtensionRuntime } from "./extensionRuntime";
 
-export function activate(context: vscode.ExtensionContext): void {
-	const builder = new InstantiationServiceBuilder();
-	builder.define(IExtensionContextService, new ExtensionContextService(context));
-	builder.define(ICommandRegistrationService, new SyncDescriptor(CommandRegistrationService));
-	builder.define(IReviewStore, new SyncDescriptor(ReviewStore));
-	builder.define(IReviewPanelStateService, new SyncDescriptor(ReviewPanelStateService));
-	builder.define(IReviewViewService, new SyncDescriptor(ReviewViewService));
-	const instantiationService = builder.seal();
-	instantiationService.invokeFunction((accessor) => accessor.get(IReviewViewService));
+let recorder: DiagnosticsRecorder | undefined;
+let runtime: ExtensionRuntime | undefined;
 
-	context.subscriptions.push({ dispose: () => instantiationService.dispose() });
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+	const config = readDiagnosticsLaunchConfig(process.env);
+	const outputChannel = vscode.window.createOutputChannel("AI Review", { log: true });
+	context.subscriptions.push(outputChannel);
+
+	recorder = await createDiagnosticsRecorder({
+		config,
+		outputChannel,
+		extensionPath: context.extensionPath,
+		extensionVersion: String(context.extension.packageJSON.version ?? "unknown")
+	});
+	recorder.info("lifecycle", "activation.started");
+
+	try {
+		const { createExtensionRuntime } = await import("./extensionRuntime");
+		runtime = await createExtensionRuntime({ context, diagnosticsRecorder: recorder });
+		recorder.info("lifecycle", "activation.completed");
+	} catch (error) {
+		recorder.error("lifecycle", "activation.failed", error);
+		await recorder.flush();
+		throw error;
+	}
 }
 
-export function deactivate(): void {}
+export async function deactivate(): Promise<void> {
+	const activeRecorder = recorder;
+	try {
+		runtime?.dispose();
+		runtime = undefined;
+		activeRecorder?.info("lifecycle", "deactivation.completed");
+	} catch (error) {
+		activeRecorder?.error("lifecycle", "deactivation.failed", error);
+	} finally {
+		recorder = undefined;
+		await activeRecorder?.close();
+	}
+}

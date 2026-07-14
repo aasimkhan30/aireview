@@ -1,6 +1,7 @@
 import type * as vscode from "vscode";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ReviewNote } from "../common/reviewProtocol";
+import type { IDiagnosticsService } from "../diagnostics/diagnosticsService";
 import type { IExtensionContextService } from "../services/extensionContextService";
 import { ReviewStore } from "./reviewStore";
 
@@ -59,7 +60,7 @@ describe("ReviewStore", () => {
 			_serviceBrand: undefined,
 			context: { workspaceState: storage as vscode.Memento } as vscode.ExtensionContext
 		} satisfies IExtensionContextService;
-		const store = new ReviewStore(contextService);
+		const store = new ReviewStore(contextService, noOpDiagnostics);
 		stores.push(store);
 		return store;
 	}
@@ -108,6 +109,18 @@ class FakeMemento {
 		this.maximumConcurrentUpdates = 0;
 	}
 }
+
+const noOpDiagnostics: IDiagnosticsService = {
+	_serviceBrand: undefined,
+	isEnabled: () => false,
+	trace: () => undefined,
+	debug: () => undefined,
+	info: () => undefined,
+	warn: () => undefined,
+	error: () => undefined,
+	record: () => undefined,
+	startOperation: () => ({ correlationId: undefined, complete: () => undefined, fail: () => undefined })
+};
 
 function createNote(id: string): ReviewNote {
 	return {

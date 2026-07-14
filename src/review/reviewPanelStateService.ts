@@ -12,6 +12,7 @@ import type {
 } from "../common/reviewProtocol";
 import { Emitter, type Event } from "../common/emitter";
 import { AiReviewCommand } from "../common/commands";
+import { IDiagnosticsService } from "../diagnostics/diagnosticsService";
 import { ICommandRegistrationService } from "../services/commandRegistrationService";
 import { createServiceIdentifier } from "../util/di";
 import { Disposable } from "../util/vs/base/common/lifecycle";
@@ -44,7 +45,8 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 
 	constructor(
 		@IReviewStore private readonly reviewStore: IReviewStore,
-		@ICommandRegistrationService private readonly commandRegistrationService: ICommandRegistrationService
+		@ICommandRegistrationService private readonly commandRegistrationService: ICommandRegistrationService,
+		@IDiagnosticsService private readonly diagnostics: IDiagnosticsService
 	) {
 		super();
 		this.lastTextEditor = vscode.window.activeTextEditor;
@@ -76,7 +78,7 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 	refresh(): Promise<ReviewPanelStateEnvelope> {
 		this.refreshRequested = true;
 		if (!this.refreshPromise) {
-			const promise = this.runRefreshLoop();
+			const promise = this.runRefreshWithDiagnostics();
 			this.refreshPromise = promise;
 			void promise.then(
 				() => this.clearRefreshPromise(promise),
@@ -87,6 +89,7 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 	}
 
 	async addNote(input: AddReviewNoteParams): Promise<ReviewPanelStateEnvelope> {
+		const operation = this.diagnostics.startOperation("reviewState", "note.add");
 		const activeFile = this.getActiveFileSnapshot();
 		const note: ReviewNote = {
 			id: randomUUID(),
@@ -96,13 +99,44 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 			range: input.range ?? activeFile?.selection,
 			createdAt: new Date().toISOString()
 		};
-		await this.reviewStore.addNote(note);
-		return this.refresh();
+		try {
+			await this.reviewStore.addNote(note);
+			const state = await this.refresh();
+			operation.complete(() => ({ revision: state.revision, noteCount: state.value.notes.length }));
+			return state;
+		} catch (error) {
+			operation.fail(error);
+			throw error;
+		}
 	}
 
 	async deleteNote(id: string): Promise<ReviewPanelStateEnvelope> {
-		const deleted = await this.reviewStore.deleteNote(id);
-		return deleted ? this.refresh() : this.getState();
+		const operation = this.diagnostics.startOperation("reviewState", "note.delete");
+		try {
+			const deleted = await this.reviewStore.deleteNote(id);
+			const state = deleted ? await this.refresh() : await this.getState();
+			operation.complete(() => ({ deleted, revision: state.revision, noteCount: state.value.notes.length }));
+			return state;
+		} catch (error) {
+			operation.fail(error);
+			throw error;
+		}
+	}
+
+	private async runRefreshWithDiagnostics(): Promise<ReviewPanelStateEnvelope> {
+		const operation = this.diagnostics.startOperation("reviewState", "refresh");
+		try {
+			const state = await this.runRefreshLoop();
+			operation.complete(() => ({
+				revision: state.revision,
+				noteCount: state.value.notes.length,
+				hasActiveFile: state.value.workspace.activeFile !== undefined
+			}));
+			return state;
+		} catch (error) {
+			operation.fail(error);
+			throw error;
+		}
 	}
 
 	private async runRefreshLoop(): Promise<ReviewPanelStateEnvelope> {
@@ -136,7 +170,7 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 	}
 
 	private requestRefresh(): void {
-		void this.refresh().catch((error) => console.error("Failed to refresh AI Review state", error));
+		void this.refresh().catch((error) => this.diagnostics.error("reviewState", "refresh.backgroundFailed", error));
 	}
 
 	private async buildState(): Promise<ReviewPanelState> {
@@ -179,7 +213,7 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 		return {
 			name: workspaceFolder?.name ?? "No workspace",
 			uri: workspaceFolder?.uri.toString(),
-			branch: await getGitBranch(workspaceFolder?.uri.fsPath),
+			branch: await getGitBranch(workspaceFolder?.uri.fsPath, this.diagnostics),
 			activeFile
 		};
 	}
@@ -209,11 +243,13 @@ function toReviewRange(range: vscode.Range): ReviewRange {
 	};
 }
 
-async function getGitBranch(cwd: string | undefined): Promise<string | undefined> {
+async function getGitBranch(cwd: string | undefined, diagnostics: IDiagnosticsService): Promise<string | undefined> {
 	if (!cwd) {
+		diagnostics.debug("git", "branch.skipped", () => ({ reason: "missingWorkspace" }));
 		return undefined;
 	}
 
+	const operation = diagnostics.startOperation("git", "branch.resolve");
 	try {
 		const stdout = await new Promise<string>((resolve, reject) => {
 			execFile("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd, windowsHide: true }, (error, output) => {
@@ -225,8 +261,10 @@ async function getGitBranch(cwd: string | undefined): Promise<string | undefined
 			});
 		});
 		const branch = stdout.trim();
+		operation.complete(() => ({ found: branch.length > 0 }));
 		return branch.length > 0 ? branch : undefined;
-	} catch {
+	} catch (error) {
+		operation.fail(error);
 		return undefined;
 	}
 }

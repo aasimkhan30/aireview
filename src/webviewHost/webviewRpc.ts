@@ -8,6 +8,7 @@ import {
 	type MessageReader,
 	type MessageWriter
 } from "vscode-jsonrpc/node";
+import type { IDiagnosticsService } from "../diagnostics/diagnosticsService";
 import { isRpcEnvelope, rpcEnvelopeKind } from "../common/webviewProtocol";
 
 export class ExtensionWebviewMessageReader extends AbstractMessageReader implements MessageReader {
@@ -28,8 +29,13 @@ export class ExtensionWebviewMessageReader extends AbstractMessageReader impleme
 
 export class ExtensionWebviewMessageWriter extends AbstractMessageWriter implements MessageWriter {
 	private errorCount = 0;
+	private ended = false;
 
-	constructor(private readonly webview: vscode.Webview) {
+	constructor(
+		private readonly webview: vscode.Webview,
+		private readonly diagnostics: IDiagnosticsService,
+		private readonly isSessionDisposed: () => boolean
+	) {
 		super();
 	}
 
@@ -45,12 +51,16 @@ export class ExtensionWebviewMessageWriter extends AbstractMessageWriter impleme
 			}
 		} catch (error) {
 			this.errorCount += 1;
+			if (!this.ended && !this.isSessionDisposed()) {
+				this.diagnostics.error("webview", "rpc.write.failed", error, () => ({ errorCount: this.errorCount }));
+			}
 			this.fireError(error, message, this.errorCount);
 			throw error;
 		}
 	}
 
 	end(): void {
+		this.ended = true;
 		this.fireClose();
 	}
 }

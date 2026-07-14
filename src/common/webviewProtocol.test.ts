@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { normalizeWebviewDiagnosticInput } from "./diagnosticsProtocol";
 import { isRpcEnvelope, rpcEnvelopeKind, shouldAcceptStateEnvelope, type StateEnvelope } from "./webviewProtocol";
 
 describe("isRpcEnvelope", () => {
@@ -38,5 +39,30 @@ describe("shouldAcceptStateEnvelope", () => {
 
 	it("accepts a new extension-host source even when its revision restarts", () => {
 		expect(shouldAcceptStateEnvelope(state("host-a", 42), state("host-b", 1))).toBe(true);
+	});
+});
+
+describe("normalizeWebviewDiagnosticInput", () => {
+	it("accepts known events and strips unrecognized data", () => {
+		expect(
+			normalizeWebviewDiagnosticInput({
+				level: "info",
+				name: "state.load.completed",
+				correlationId: "abc123",
+				durationMs: 12.5,
+				data: { revision: 4, noteCount: 2, body: "must not cross the boundary" }
+			})
+		).toEqual({
+			level: "info",
+			name: "state.load.completed",
+			correlationId: "abc123",
+			durationMs: 12.5,
+			data: { revision: 4, noteCount: 2, hasActiveFile: undefined, errorName: undefined, errorMessage: undefined }
+		});
+	});
+
+	it("rejects unknown event names and levels", () => {
+		expect(normalizeWebviewDiagnosticInput({ level: "trace", name: "state.load.completed" })).toBeUndefined();
+		expect(normalizeWebviewDiagnosticInput({ level: "info", name: "arbitrary.event" })).toBeUndefined();
 	});
 });

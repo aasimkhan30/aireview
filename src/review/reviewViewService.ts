@@ -1,4 +1,5 @@
 import { AiReviewCommand, type CommandWithoutArguments } from "../common/commands";
+import { IDiagnosticsService } from "../diagnostics/diagnosticsService";
 import { ICommandRegistrationService } from "../services/commandRegistrationService";
 import { IExtensionContextService } from "../services/extensionContextService";
 import { createServiceIdentifier } from "../util/di";
@@ -26,13 +27,15 @@ export class ReviewViewService extends Disposable implements IReviewViewService 
 	constructor(
 		@IExtensionContextService extensionContextService: IExtensionContextService,
 		@ICommandRegistrationService private readonly commandRegistrationService: ICommandRegistrationService,
-		@IReviewPanelStateService private readonly stateService: IReviewPanelStateService
+		@IReviewPanelStateService private readonly stateService: IReviewPanelStateService,
+		@IDiagnosticsService private readonly diagnostics: IDiagnosticsService
 	) {
 		super();
 		this.host = this._register(
 			new WebviewViewHost({
 				viewId: aiReviewViewId,
 				extensionUri: extensionContextService.context.extensionUri,
+				diagnostics,
 				content: {
 					title: "AI Review",
 					scriptPath: ["media", "reviewPanel.js"],
@@ -40,7 +43,7 @@ export class ReviewViewService extends Disposable implements IReviewViewService 
 					localResourceRootPaths: [["media"]]
 				},
 				createController: (connection, surface) =>
-					new ReviewWebviewController(connection, stateService, () => surface.visible),
+					new ReviewWebviewController(connection, stateService, () => surface.visible, diagnostics),
 				onDidBecomeVisible: async () => {
 					await stateService.refresh();
 				}
@@ -50,11 +53,21 @@ export class ReviewViewService extends Disposable implements IReviewViewService 
 	}
 
 	async open(): Promise<void> {
-		this.stateService.captureActiveTextEditor();
-		if (!this.host.show(false)) {
-			await this.executeFirstAvailableCommand(AiReviewCommand.ReviewViewFocus, AiReviewCommand.ReviewViewOpen);
+		const operation = this.diagnostics.startOperation("webview", "view.open");
+		try {
+			this.stateService.captureActiveTextEditor();
+			if (!this.host.show(false)) {
+				await this.executeFirstAvailableCommand(
+					AiReviewCommand.ReviewViewFocus,
+					AiReviewCommand.ReviewViewOpen
+				);
+			}
+			await this.stateService.refresh();
+			operation.complete();
+		} catch (error) {
+			operation.fail(error);
+			throw error;
 		}
-		await this.stateService.refresh();
 	}
 
 	private async executeFirstAvailableCommand(...commandIds: CommandWithoutArguments[]): Promise<void> {
