@@ -7,10 +7,7 @@
       "isBackground": true,
       "problemMatcher": {
         "owner": "esbuild",
-        "fileLocation": [
-          "relative",
-          "${workspaceFolder}"
-        ],
+        "fileLocation": ["relative", "${workspaceFolder}"],
         "pattern": {
           "regexp": "^(.*):(\\d+):(\\d+): error: (.*)$",
           "file": 1,

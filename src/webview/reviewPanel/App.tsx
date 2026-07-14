@@ -1,11 +1,7 @@
 import * as React from "react";
 import { FileText, MessageSquare, Plus, RefreshCw, Send, Trash2 } from "lucide-react";
 import type { MessageConnection } from "vscode-jsonrpc/browser";
-import {
-	type ReviewNote,
-	type ReviewPanelState,
-	ReviewRpc
-} from "../../common/reviewProtocol";
+import { type ReviewNote, type ReviewPanelState, ReviewRpc } from "../../common/reviewProtocol";
 import { createReviewPanelConnection } from "./rpc";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
@@ -28,16 +24,18 @@ export function App() {
 			setState(nextState);
 		});
 		nextConnection.listen();
+		// The connection is an external resource created and disposed with this effect.
+		// eslint-disable-next-line react-hooks/set-state-in-effect
 		setConnection(nextConnection);
 
 		void nextConnection
 			.sendRequest<ReviewPanelState>(ReviewRpc.getState)
-			.then(nextState => {
+			.then((nextState) => {
 				if (!disposed) {
 					setState(nextState);
 				}
 			})
-			.catch(error => {
+			.catch((error) => {
 				if (!disposed) {
 					console.error("Failed to load review panel state", error);
 				}
@@ -113,11 +111,13 @@ export function App() {
 				<section className="section" aria-label="Draft">
 					<div className="section__header">
 						<h2>Draft note</h2>
-						{activeFile ? <Badge variant="muted">{formatSelection(activeFile.selection?.startLine)}</Badge> : undefined}
+						{activeFile ? (
+							<Badge variant="muted">{formatSelection(activeFile.selection?.startLine)}</Badge>
+						) : undefined}
 					</div>
 					<Textarea
 						value={draft}
-						onChange={event => setDraft(event.target.value)}
+						onChange={(event) => setDraft(event.target.value)}
 						placeholder="Exact edit request"
 						rows={8}
 					/>
@@ -134,7 +134,7 @@ export function App() {
 						<h2>Agent target</h2>
 					</div>
 					<div className="target-list">
-						{state?.agentTargets.map(target => (
+						{state?.agentTargets.map((target) => (
 							<div className="target-row" key={target.id}>
 								<div>
 									<div className="target-row__label">{target.label}</div>
@@ -161,23 +161,30 @@ export function App() {
 					<Badge>{state?.notes.length ?? 0}</Badge>
 				</div>
 				<div className="notes-list">
-					{state?.notes.length ? state.notes.map(note => (
-						<Card key={note.id}>
-							<CardHeader>
-								<CardTitle>
-									<FileText aria-hidden="true" size={16} />
-									<span>{note.filePath ?? "Current context"}</span>
-								</CardTitle>
-								<Button variant="ghost" size="icon" aria-label="Delete note" onClick={() => void deleteNote(note.id)}>
-									<Trash2 aria-hidden="true" size={15} />
-								</Button>
-							</CardHeader>
-							<CardContent>
-								<p>{note.body}</p>
-								<div className="note-meta">{formatNoteLocation(note)}</div>
-							</CardContent>
-						</Card>
-					)) : (
+					{state?.notes.length ? (
+						state.notes.map((note) => (
+							<Card key={note.id}>
+								<CardHeader>
+									<CardTitle>
+										<FileText aria-hidden="true" size={16} />
+										<span>{note.filePath ?? "Current context"}</span>
+									</CardTitle>
+									<Button
+										variant="ghost"
+										size="icon"
+										aria-label="Delete note"
+										onClick={() => void deleteNote(note.id)}
+									>
+										<Trash2 aria-hidden="true" size={15} />
+									</Button>
+								</CardHeader>
+								<CardContent>
+									<p>{note.body}</p>
+									<div className="note-meta">{formatNoteLocation(note)}</div>
+								</CardContent>
+							</Card>
+						))
+					) : (
 						<div className="empty-state">No review notes</div>
 					)}
 				</div>

@@ -4,6 +4,7 @@ media/
 dist/
 *.vsix
 .vscode-test/
+coverage/
 .DS_Store
 Thumbs.db
 npm-debug.log*

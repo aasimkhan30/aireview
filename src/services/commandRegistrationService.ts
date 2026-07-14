@@ -3,7 +3,8 @@ import type { CommandArguments, CommandCallback, CommandId, CommandResult } from
 import { createServiceIdentifier } from "../util/di";
 import { IExtensionContextService } from "./extensionContextService";
 
-export const ICommandRegistrationService = createServiceIdentifier<ICommandRegistrationService>("commandRegistrationService");
+export const ICommandRegistrationService =
+	createServiceIdentifier<ICommandRegistrationService>("commandRegistrationService");
 
 export interface ICommandRegistrationService {
 	readonly _serviceBrand: undefined;
@@ -22,9 +23,7 @@ export interface ICommandRegistrationService {
 export class CommandRegistrationService implements ICommandRegistrationService {
 	declare readonly _serviceBrand: undefined;
 
-	constructor(
-		@IExtensionContextService private readonly extensionContextService: IExtensionContextService
-	) {}
+	constructor(@IExtensionContextService private readonly extensionContextService: IExtensionContextService) {}
 
 	registerCommand<TCommand extends CommandId>(
 		command: TCommand,

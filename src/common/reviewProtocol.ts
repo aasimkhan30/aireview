@@ -67,9 +67,9 @@ export interface AgentTarget {
 
 export function isRpcEnvelope(value: unknown): value is RpcEnvelope {
 	return Boolean(
-		value
-		&& typeof value === "object"
-		&& (value as Partial<RpcEnvelope>).kind === rpcEnvelopeKind
-		&& "payload" in value
+		value &&
+		typeof value === "object" &&
+		(value as Partial<RpcEnvelope>).kind === rpcEnvelopeKind &&
+		"payload" in value
 	);
 }

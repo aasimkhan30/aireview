@@ -157,7 +157,10 @@ h2 {
 	line-height: 16px;
 	cursor: pointer;
 	user-select: none;
-	transition: background-color 80ms ease, border-color 80ms ease, opacity 80ms ease;
+	transition:
+		background-color 80ms ease,
+		border-color 80ms ease,
+		opacity 80ms ease;
 }
 
 .button:focus-visible {

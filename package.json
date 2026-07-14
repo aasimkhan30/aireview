@@ -48,21 +48,38 @@
     }
   },
   "scripts": {
+    "check": "npm run format:check && npm run lint && npm test && npm run package:check",
     "check-types": "tsc --noEmit",
     "compile": "npm run check-types && node esbuild.js",
     "compile:production": "npm run check-types && node esbuild.js --production",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint . --max-warnings 0",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:integration": "npm run compile:production && node scripts/run-integration-tests.mjs",
+    "package:check": "vsce ls",
     "watch": "node esbuild.js --watch",
     "package": "vsce package",
     "vscode:prepublish": "npm run compile:production"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^20.14.10",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@types/vscode": "^1.92.0",
+    "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^2.31.1",
     "esbuild": "^0.23.0",
-    "typescript": "^5.5.4"
+    "eslint": "^10.6.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.7.0",
+    "prettier": "^3.9.4",
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.63.0",
+    "vitest": "^4.1.10"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

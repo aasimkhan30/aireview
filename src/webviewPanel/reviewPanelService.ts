@@ -42,22 +42,26 @@ export class ReviewPanelService implements IReviewPanelService {
 		this.lastTextEditor = vscode.window.activeTextEditor;
 
 		const context = this.extensionContextService.context;
-		context.subscriptions.push(vscode.window.registerWebviewViewProvider(
-			aiReviewViewId,
-			this,
-			{ webviewOptions: { retainContextWhenHidden: true } }
-		));
+		context.subscriptions.push(
+			vscode.window.registerWebviewViewProvider(aiReviewViewId, this, {
+				webviewOptions: { retainContextWhenHidden: true }
+			})
+		);
 		this.commandRegistrationService.registerCommand(openReviewPanelCommandId, () => this.open());
-		context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(editor => {
-			if (editor) {
-				this.lastTextEditor = editor;
-			}
-			void this.publishState();
-		}));
-		context.subscriptions.push(vscode.window.onDidChangeTextEditorSelection(event => {
-			this.lastTextEditor = event.textEditor;
-			void this.publishState();
-		}));
+		context.subscriptions.push(
+			vscode.window.onDidChangeActiveTextEditor((editor) => {
+				if (editor) {
+					this.lastTextEditor = editor;
+				}
+				void this.publishState();
+			})
+		);
+		context.subscriptions.push(
+			vscode.window.onDidChangeTextEditorSelection((event) => {
+				this.lastTextEditor = event.textEditor;
+				void this.publishState();
+			})
+		);
 	}
 
 	async open(): Promise<void> {
@@ -69,16 +73,13 @@ export class ReviewPanelService implements IReviewPanelService {
 			return;
 		}
 
-		await this.executeFirstAvailableCommand(
-			AiReviewCommand.ReviewViewFocus,
-			AiReviewCommand.ReviewViewOpen
-		);
+		await this.executeFirstAvailableCommand(AiReviewCommand.ReviewViewFocus, AiReviewCommand.ReviewViewOpen);
 		await this.publishState();
 	}
 
 	private async executeFirstAvailableCommand(...commandIds: CommandWithoutArguments[]): Promise<void> {
 		const commands = await this.commandRegistrationService.getCommands(true);
-		const commandId = commandIds.find(id => commands.includes(id));
+		const commandId = commandIds.find((id) => commands.includes(id));
 		if (!commandId) {
 			throw new Error(`AI Review view command not found. Tried: ${commandIds.join(", ")}`);
 		}
@@ -149,7 +150,7 @@ export class ReviewPanelService implements IReviewPanelService {
 	private async deleteNote(params: unknown): Promise<boolean> {
 		const input = normalizeDeleteReviewNoteParams(params);
 		const notes = this.getNotes();
-		const nextNotes = notes.filter(note => note.id !== input.id);
+		const nextNotes = notes.filter((note) => note.id !== input.id);
 
 		if (nextNotes.length === notes.length) {
 			return false;
@@ -342,10 +343,12 @@ function isReviewRange(value: unknown): value is ReviewRange {
 	}
 
 	const range = value as Partial<ReviewRange>;
-	return typeof range.startLine === "number"
-		&& typeof range.startCharacter === "number"
-		&& typeof range.endLine === "number"
-		&& typeof range.endCharacter === "number";
+	return (
+		typeof range.startLine === "number" &&
+		typeof range.startCharacter === "number" &&
+		typeof range.endLine === "number" &&
+		typeof range.endCharacter === "number"
+	);
 }
 
 function getNonce(): string {
