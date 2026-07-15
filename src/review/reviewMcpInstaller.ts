@@ -10,7 +10,7 @@ import type {
 	SettingsScope
 } from "../common/settingsProtocol";
 
-const managedBlockStart = "# BEGIN REQUEST CHANGES MCP (managed by aaskhan.request-changes)";
+const managedBlockStart = "# BEGIN REQUEST CHANGES MCP (managed by aasimkhan30.request-changes)";
 const managedBlockEnd = "# END REQUEST CHANGES MCP";
 
 export interface McpInstallerOptions {
