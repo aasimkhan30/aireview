@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const vscode = require("vscode");
 
 async function run() {
-	const extension = vscode.extensions.getExtension("aaskhan.request-changes");
+	const extension = vscode.extensions.getExtension("aasimkhan30.request-changes");
 	assert.ok(extension, "Expected the extension under test to be installed");
 
 	await extension.activate();
@@ -19,7 +19,7 @@ async function run() {
 	const commentUri = vscode.Uri.from({
 		scheme: "comment",
 		authority: "requestchanges.comments",
-		path: "/aaskhan.request-changes/commentinput-integration.md"
+		path: "/aasimkhan30.request-changes/commentinput-integration.md"
 	});
 	await vscode.workspace.openTextDocument(commentUri);
 	const completions = await vscode.commands.executeCommand(
