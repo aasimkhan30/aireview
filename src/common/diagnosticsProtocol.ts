@@ -13,12 +13,27 @@ export const webviewDiagnosticNames = [
 	"state.refresh.started",
 	"state.refresh.completed",
 	"state.refresh.failed",
-	"note.add.started",
-	"note.add.completed",
-	"note.add.failed",
+	"annotation.start.started",
+	"annotation.start.completed",
+	"annotation.start.failed",
+	"note.update.started",
+	"note.update.completed",
+	"note.update.failed",
 	"note.delete.started",
 	"note.delete.completed",
-	"note.delete.failed"
+	"note.delete.failed",
+	"note.reveal.started",
+	"note.reveal.completed",
+	"note.reveal.failed",
+	"instructions.update.started",
+	"instructions.update.completed",
+	"instructions.update.failed",
+	"bundle.preview.started",
+	"bundle.preview.completed",
+	"bundle.preview.failed",
+	"bundle.copy.started",
+	"bundle.copy.completed",
+	"bundle.copy.failed"
 ] as const;
 export type WebviewDiagnosticName = (typeof webviewDiagnosticNames)[number];
 

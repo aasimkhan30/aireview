@@ -5,6 +5,7 @@ import { IExtensionContextService } from "../services/extensionContextService";
 import { createServiceIdentifier } from "../util/di";
 import { Disposable } from "../util/vs/base/common/lifecycle";
 import { WebviewViewHost } from "../webviewHost/webviewViewHost";
+import { IReviewCommentService } from "./reviewCommentService";
 import { IReviewPanelStateService } from "./reviewPanelStateService";
 import { ReviewWebviewController } from "./reviewWebviewController";
 
@@ -28,6 +29,7 @@ export class ReviewViewService extends Disposable implements IReviewViewService 
 		@IExtensionContextService extensionContextService: IExtensionContextService,
 		@ICommandRegistrationService private readonly commandRegistrationService: ICommandRegistrationService,
 		@IReviewPanelStateService private readonly stateService: IReviewPanelStateService,
+		@IReviewCommentService private readonly commentService: IReviewCommentService,
 		@IDiagnosticsService private readonly diagnostics: IDiagnosticsService
 	) {
 		super();
@@ -43,7 +45,13 @@ export class ReviewViewService extends Disposable implements IReviewViewService 
 					localResourceRootPaths: [["media"]]
 				},
 				createController: (connection, surface) =>
-					new ReviewWebviewController(connection, stateService, () => surface.visible, diagnostics),
+					new ReviewWebviewController(
+						connection,
+						stateService,
+						commentService,
+						() => surface.visible,
+						diagnostics
+					),
 				onDidBecomeVisible: async () => {
 					await stateService.refresh();
 				}

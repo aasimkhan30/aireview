@@ -3,16 +3,21 @@ import { DiagnosticsRpc, normalizeWebviewDiagnosticInput } from "../common/diagn
 import { ReviewRpc } from "../common/reviewProtocol";
 import type { IDiagnosticsService } from "../diagnostics/diagnosticsService";
 import { Disposable } from "../util/vs/base/common/lifecycle";
+import type { IReviewCommentService } from "./reviewCommentService";
 import type { IReviewPanelStateService } from "./reviewPanelStateService";
-import { normalizeAddReviewNoteParams, normalizeDeleteReviewNoteParams } from "./reviewValidation";
+import {
+	normalizeDeleteReviewNoteParams,
+	normalizeReviewNoteIdParams,
+	normalizeUpdateReviewNoteParams
+} from "./reviewValidation";
 
-/** Binds one webview session to the shared, host-authoritative review state. */
 export class ReviewWebviewController extends Disposable {
 	private disposed = false;
 
 	constructor(
 		private readonly connection: MessageConnection,
 		private readonly stateService: IReviewPanelStateService,
+		private readonly commentService: IReviewCommentService,
 		private readonly isVisible: () => boolean,
 		private readonly diagnostics: IDiagnosticsService
 	) {
@@ -21,8 +26,13 @@ export class ReviewWebviewController extends Disposable {
 			connection.onRequest(ReviewRpc.getState, () => this.runRequest("state.get", () => stateService.refresh()))
 		);
 		this._register(
-			connection.onRequest(ReviewRpc.addNote, (params: unknown) =>
-				this.runRequest("note.add", () => stateService.addNote(normalizeAddReviewNoteParams(params)))
+			connection.onRequest(ReviewRpc.startAnnotation, () =>
+				this.runRequest("annotation.start", () => commentService.startAnnotation())
+			)
+		);
+		this._register(
+			connection.onRequest(ReviewRpc.updateNote, (params: unknown) =>
+				this.runRequest("note.update", () => stateService.updateNote(normalizeUpdateReviewNoteParams(params)))
 			)
 		);
 		this._register(
@@ -30,6 +40,21 @@ export class ReviewWebviewController extends Disposable {
 				this.runRequest("note.delete", () =>
 					stateService.deleteNote(normalizeDeleteReviewNoteParams(params).id)
 				)
+			)
+		);
+		this._register(
+			connection.onRequest(ReviewRpc.revealNote, (params: unknown) =>
+				this.runRequest("note.reveal", () => commentService.revealNote(normalizeReviewNoteIdParams(params).id))
+			)
+		);
+		this._register(
+			connection.onRequest(ReviewRpc.previewBundle, () =>
+				this.runRequest("bundle.preview", () => stateService.previewBundle())
+			)
+		);
+		this._register(
+			connection.onRequest(ReviewRpc.copyBundle, () =>
+				this.runRequest("bundle.copy", () => stateService.copyBundle())
 			)
 		);
 		this._register(

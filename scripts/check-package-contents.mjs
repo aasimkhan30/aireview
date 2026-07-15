@@ -14,6 +14,9 @@ const requiredFiles = [
 	"License.txt",
 	"media/reviewPanel.css",
 	"media/reviewPanel.js",
+	"media/settings.css",
+	"media/settings.js",
+	"out/aireview-mcp.js",
 	"out/extension.js",
 	"package.json"
 ];

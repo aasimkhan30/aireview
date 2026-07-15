@@ -22,7 +22,18 @@ export class WebviewDiagnostics {
 		this.send({ level: "info", name, data });
 	}
 
-	startOperation(baseName: "state.load" | "state.refresh" | "note.add" | "note.delete"): WebviewDiagnosticOperation {
+	startOperation(
+		baseName:
+			| "state.load"
+			| "state.refresh"
+			| "annotation.start"
+			| "note.update"
+			| "note.delete"
+			| "note.reveal"
+			| "instructions.update"
+			| "bundle.preview"
+			| "bundle.copy"
+	): WebviewDiagnosticOperation {
 		const correlationId = createCorrelationId();
 		const startedAt = performance.now();
 		let completed = false;

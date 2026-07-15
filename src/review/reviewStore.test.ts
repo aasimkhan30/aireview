@@ -1,64 +1,103 @@
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type * as vscode from "vscode";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ReviewNote } from "../common/reviewProtocol";
 import type { IDiagnosticsService } from "../diagnostics/diagnosticsService";
 import type { IExtensionContextService } from "../services/extensionContextService";
+import { ReviewLedger } from "./reviewLedger";
 import { ReviewStore } from "./reviewStore";
 
 describe("ReviewStore", () => {
+	let temporaryDirectory: string;
+	let workspaceRoot: string;
+	let dataDirectory: string;
 	const stores: ReviewStore[] = [];
 
-	afterEach(() => {
+	beforeEach(async () => {
+		temporaryDirectory = await mkdtemp(join(tmpdir(), "aireview-store-"));
+		workspaceRoot = join(temporaryDirectory, "workspace");
+		dataDirectory = join(temporaryDirectory, "data");
+		await mkdir(workspaceRoot);
+	});
+
+	afterEach(async () => {
 		for (const store of stores) {
 			store.dispose();
 		}
 		stores.length = 0;
+		await rm(temporaryDirectory, { recursive: true, force: true });
 	});
 
-	it("starts with empty versioned state and ignores legacy notes", async () => {
-		const storage = new FakeMemento({ "aireview.reviewNotes": [createNote("legacy")] });
-		const store = createStore(storage);
+	it("starts with an empty user-scoped ledger", async () => {
+		const store = createStore(new FakeMemento());
 
-		await expect(store.getState()).resolves.toEqual({ version: 1, notes: [] });
-		expect(storage.get("aireview.reviewState")).toEqual({ version: 1, notes: [] });
+		await expect(store.getState()).resolves.toMatchObject({
+			version: 3,
+			revision: 0,
+			notes: [],
+			effectiveInstructions: "",
+			selectedTarget: "codex"
+		});
+		expect((await store.getLocation()).stateFile).toContain(dataDirectory);
+	});
+
+	it("migrates version two workspace state without losing note text", async () => {
+		const storage = new FakeMemento({
+			"aireview.reviewState": {
+				version: 2,
+				notes: [createNote("legacy")],
+				overallInstructions: "Keep the public API stable.",
+				selectedTarget: "copilot"
+			}
+		});
+		const state = await createStore(storage).getState();
+
+		expect(state).toMatchObject({
+			version: 3,
+			effectiveInstructions: "Keep the public API stable.",
+			selectedTarget: "copilot"
+		});
+		expect(state.notes[0]).toMatchObject({ id: "legacy", body: "Note legacy", status: "draft" });
 	});
 
 	it("serializes concurrent mutations without losing notes", async () => {
-		const storage = new FakeMemento();
-		const store = createStore(storage);
+		const store = createStore(new FakeMemento());
 		await store.getState();
-		storage.resetUpdateMetrics();
 
 		await Promise.all([store.addNote(createNote("first")), store.addNote(createNote("second"))]);
 
-		expect((await store.getState()).notes.map((note) => note.id)).toEqual(["second", "first"]);
-		expect(storage.maximumConcurrentUpdates).toBe(1);
+		expect((await store.getState()).notes.map((note) => note.id).sort()).toEqual(["first", "second"]);
 	});
 
-	it("continues processing mutations after a failed persistence update", async () => {
-		const storage = new FakeMemento();
-		const store = createStore(storage);
+	it("observes state written by another process", async () => {
+		const store = createStore(new FakeMemento());
 		await store.getState();
-		storage.failNextUpdate = true;
+		const ledger = await ReviewLedger.open(workspaceRoot, dataDirectory);
+		const changed = new Promise<void>((resolveChanged, rejectChanged) => {
+			const timeout = setTimeout(() => rejectChanged(new Error("Timed out waiting for ledger change")), 1_000);
+			const disposable = store.onDidChange((state) => {
+				if (state.notes.some((note) => note.id === "external")) {
+					clearTimeout(timeout);
+					disposable.dispose();
+					resolveChanged();
+				}
+			});
+		});
 
-		await expect(store.addNote(createNote("failed"))).rejects.toThrow("Simulated storage failure");
-		await expect(store.addNote(createNote("saved"))).resolves.toBeUndefined();
-		expect((await store.getState()).notes.map((note) => note.id)).toEqual(["saved"]);
-	});
+		await ledger.mutate((state) => ({ ...state, notes: [createNote("external"), ...state.notes] }));
+		await changed;
 
-	it("retries initial state loading after its persistence write fails", async () => {
-		const storage = new FakeMemento();
-		storage.failNextUpdate = true;
-		const store = createStore(storage);
-
-		await expect(store.getState()).rejects.toThrow("Simulated storage failure");
-		await expect(store.getState()).resolves.toEqual({ version: 1, notes: [] });
+		expect((await store.getState()).notes[0].id).toBe("external");
 	});
 
 	function createStore(storage: FakeMemento): ReviewStore {
 		const contextService = {
 			_serviceBrand: undefined,
-			context: { workspaceState: storage as vscode.Memento } as vscode.ExtensionContext
+			context: { workspaceState: storage as vscode.Memento } as vscode.ExtensionContext,
+			workspaceRoots: [workspaceRoot],
+			dataDirectory
 		} satisfies IExtensionContextService;
 		const store = new ReviewStore(contextService, noOpDiagnostics);
 		stores.push(store);
@@ -68,9 +107,6 @@ describe("ReviewStore", () => {
 
 class FakeMemento {
 	readonly values = new Map<string, unknown>();
-	maximumConcurrentUpdates = 0;
-	failNextUpdate = false;
-	private concurrentUpdates = 0;
 
 	constructor(initial: Readonly<Record<string, unknown>> = {}) {
 		for (const [key, value] of Object.entries(initial)) {
@@ -83,30 +119,15 @@ class FakeMemento {
 	}
 
 	async update(key: string, value: unknown): Promise<void> {
-		this.concurrentUpdates += 1;
-		this.maximumConcurrentUpdates = Math.max(this.maximumConcurrentUpdates, this.concurrentUpdates);
-		try {
-			await Promise.resolve();
-			if (this.failNextUpdate) {
-				this.failNextUpdate = false;
-				throw new Error("Simulated storage failure");
-			}
-			if (value === undefined) {
-				this.values.delete(key);
-			} else {
-				this.values.set(key, value);
-			}
-		} finally {
-			this.concurrentUpdates -= 1;
+		if (value === undefined) {
+			this.values.delete(key);
+		} else {
+			this.values.set(key, value);
 		}
 	}
 
 	keys(): readonly string[] {
 		return [...this.values.keys()];
-	}
-
-	resetUpdateMetrics(): void {
-		this.maximumConcurrentUpdates = 0;
 	}
 }
 
@@ -126,9 +147,11 @@ function createNote(id: string): ReviewNote {
 	return {
 		id,
 		body: `Note ${id}`,
-		filePath: undefined,
-		line: undefined,
-		range: undefined,
-		createdAt: "2026-07-14T00:00:00.000Z"
+		kind: "change",
+		status: "draft",
+		anchor: undefined,
+		anchorState: "orphaned",
+		createdAt: "2026-07-14T00:00:00.000Z",
+		updatedAt: "2026-07-14T00:00:00.000Z"
 	};
 }

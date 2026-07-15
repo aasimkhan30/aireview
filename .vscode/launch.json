@@ -10,7 +10,8 @@
         "AIREVIEW_LOG_LEVEL": "debug",
         "AIREVIEW_LOG_AREAS": "lifecycle,diagnostics,reviewStore,reviewState,git,commands,webview",
         "AIREVIEW_LOG_DIRECTORY": ".artifacts",
-        "AIREVIEW_LOG_FILE": "{runId}.ndjson"
+        "AIREVIEW_LOG_FILE": "{runId}.ndjson",
+        "AIREVIEW_DATA_DIR": "${workspaceFolder}/.artifacts/development-data"
       },
       "outFiles": ["${workspaceFolder}/out/**/*.js"],
       "preLaunchTask": "npm: watch"
@@ -27,7 +28,8 @@
         "AIREVIEW_LOG_LEVEL": "info",
         "AIREVIEW_LOG_AREAS": "lifecycle,diagnostics,reviewStore,reviewState,git,commands,webview",
         "AIREVIEW_LOG_DIRECTORY": ".artifacts",
-        "AIREVIEW_LOG_FILE": "{runId}.ndjson"
+        "AIREVIEW_LOG_FILE": "{runId}.ndjson",
+        "AIREVIEW_DATA_DIR": "${workspaceFolder}/.artifacts/integration-data"
       },
       "outFiles": ["${workspaceFolder}/out/**/*.js"],
       "preLaunchTask": "npm: compile:production"

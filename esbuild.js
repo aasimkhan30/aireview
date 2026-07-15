@@ -66,13 +66,60 @@ async function main() {
 		plugins: [problemMatcherPlugin]
 	});
 
+	const mcpContext = await esbuild.context({
+		entryPoints: ["src/mcp/server.ts"],
+		bundle: true,
+		format: "cjs",
+		platform: "node",
+		outfile: "out/aireview-mcp.js",
+		define: {
+			"process.env.NODE_ENV": JSON.stringify(production ? "production" : "development")
+		},
+		sourcemap: !production,
+		minify: production,
+		sourcesContent: false,
+		logLevel: "silent",
+		plugins: [problemMatcherPlugin]
+	});
+
+	const settingsContext = await esbuild.context({
+		entryPoints: ["src/webview/settings/index.tsx"],
+		bundle: true,
+		format: "iife",
+		platform: "browser",
+		outfile: "media/settings.js",
+		define: {
+			"process.env.NODE_ENV": JSON.stringify(production ? "production" : "development")
+		},
+		sourcemap: !production,
+		minify: production,
+		sourcesContent: false,
+		logLevel: "silent",
+		plugins: [problemMatcherPlugin]
+	});
+
 	if (watch) {
-		await Promise.all([extensionContext.watch(), webviewContext.watch()]);
+		await Promise.all([
+			extensionContext.watch(),
+			webviewContext.watch(),
+			mcpContext.watch(),
+			settingsContext.watch()
+		]);
 		return;
 	}
 
-	await Promise.all([extensionContext.rebuild(), webviewContext.rebuild()]);
-	await Promise.all([extensionContext.dispose(), webviewContext.dispose()]);
+	await Promise.all([
+		extensionContext.rebuild(),
+		webviewContext.rebuild(),
+		mcpContext.rebuild(),
+		settingsContext.rebuild()
+	]);
+	await Promise.all([
+		extensionContext.dispose(),
+		webviewContext.dispose(),
+		mcpContext.dispose(),
+		settingsContext.dispose()
+	]);
 }
 
 main().catch((error) => {

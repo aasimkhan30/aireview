@@ -1,14 +1,45 @@
 # AI Review Router
 
-AI Review Router is a VS Code extension for collecting code-change review notes and sending them to an implementation agent such as Codex or GitHub Copilot Chat.
+AI Review Router is a VS Code extension and local MCP server for collecting code-change review notes and handing them to Codex, Claude Code, GitHub Copilot CLI, or GitHub Copilot in VS Code.
 
-This repository currently contains the initial extension scaffold. The review capture, session detection, and agent handoff flows will be added incrementally.
+Select code in the editor and run **AI Review: Add Note to Selection** (or use the comment gutter) to create an inline review note. Notes stay synchronized between native VS Code comment threads and the AI Review sidebar, where they can be grouped, edited, resolved, previewed as a structured implementation bundle, and handed off to Codex or Copilot.
+
+Agents read annotations through the bundled MCP server, edit code with their normal coding tools, and report notes as **Addressed** or **Blocked**. Addressed notes remain visible until a person accepts and resolves them.
+
+## Agent integrations
+
+Open **AI Review: Open Settings** or use the gear in the Review Notes view. The settings panel:
+
+- installs or removes the MCP server for Codex, Claude Code, and GitHub Copilot CLI at Workspace or User scope;
+- shows the MCP server that the extension registers automatically for GitHub Copilot in VS Code;
+- configures user-level default instructions and an optional workspace override; and
+- shows the private review ledger and bundled server locations.
+
+The integration grid tracks Workspace and User scope independently. AI Review only removes configuration entries it manages; externally configured entries are identified and can be opened for manual editing without being overwritten.
+
+Explicitly invoke AI Review when you want an agent to address comments:
+
+- GitHub Copilot in VS Code: `Fix the open comments with #aireview`
+- Claude Code: run `/mcp__aireview__fix_review` or ask it to use `aireview`
+- Codex or GitHub Copilot CLI: `Use aireview to fix the open review comments`
+
+The MCP server exposes one read tool named `aireview`, status tools for claiming and reporting notes, resources for open and individual annotations, and a `fix_review` prompt. Its server instructions tell clients not to use AI Review unless the user explicitly asks for it.
 
 ## Architecture
 
-The extension host owns review-domain state and persistence. Webview clients receive revisioned snapshots over typed JSON-RPC and persist only ephemeral UI state, such as an unfinished draft.
+The extension and MCP process share a revisioned, atomically written review ledger. Webview clients receive snapshots over typed JSON-RPC, and native comment threads are projections of the same state rather than a second store. A file watcher publishes MCP status changes back into the native comments and webview.
 
-Reusable webview infrastructure is split between a surface-neutral `WebviewSession` and a `WebviewViewHost` for the current sidebar contribution. This keeps HTML, CSP, resource, transport, visibility, and disposal behavior reusable by a future `WebviewPanel` host without implementing that host prematurely.
+Review data is private user data, not repository content. Each canonical workspace root gets a hashed directory under:
+
+- macOS: `~/Library/Application Support/AIReview`
+- Windows: `%LOCALAPPDATA%/AIReview`
+- Linux: `$XDG_STATE_HOME/aireview` or `~/.local/state/aireview`
+
+Set `AIREVIEW_DATA_DIR` to override the location.
+
+Review notes use versioned anchors containing their URI, range, selected-text hash, and bounded surrounding context. Anchors are reconciled when documents open or change; moved notes are reattached and deleted or ambiguous selections are retained as orphaned notes. Previous workspace-state versions migrate into the shared ledger without discarding note text or instructions.
+
+Reusable webview infrastructure is split between a surface-neutral `WebviewSession`, the sidebar `WebviewViewHost`, and a `WebviewPanelHost` used by Settings. HTML, CSP, resource, transport, visibility, and disposal behavior remain shared.
 
 ## Development
 
@@ -26,7 +57,7 @@ Before submitting a change, run the complete local verification gate:
 npm run check
 ```
 
-The gate checks formatting and linting, runs unit tests, type-checks and builds the production bundles, launches a VS Code 1.125 Extension Host smoke test, and validates the packaged file list, including third-party license notices. The first integration-test run downloads the configured VS Code version into `.vscode-test/`.
+The gate checks formatting and linting, runs unit tests, type-checks and builds the production bundles, exercises the MCP server over stdio, launches a VS Code 1.125 Extension Host smoke test, and validates the packaged file list. The first integration-test run downloads the configured VS Code version into `.vscode-test/`.
 
 Useful focused commands:
 

@@ -3,20 +3,23 @@ import { randomUUID } from "node:crypto";
 import * as vscode from "vscode";
 import type {
 	AddReviewNoteParams,
-	AgentTarget,
+	ReviewAnchor,
+	ReviewAnchorState,
+	ReviewBundlePreview,
+	ReviewCopyResult,
 	ReviewNote,
 	ReviewPanelState,
 	ReviewPanelStateEnvelope,
 	ReviewRange,
+	UpdateReviewNoteParams,
 	WorkspaceSnapshot
 } from "../common/reviewProtocol";
 import { Emitter, type Event } from "../common/emitter";
-import { AiReviewCommand } from "../common/commands";
 import { IDiagnosticsService } from "../diagnostics/diagnosticsService";
-import { ICommandRegistrationService } from "../services/commandRegistrationService";
 import { createServiceIdentifier } from "../util/di";
 import { Disposable } from "../util/vs/base/common/lifecycle";
 import { IReviewStore } from "./reviewStore";
+import { buildReviewBundle } from "./reviewBundle";
 
 export const IReviewPanelStateService = createServiceIdentifier<IReviewPanelStateService>("reviewPanelStateService");
 
@@ -27,7 +30,11 @@ export interface IReviewPanelStateService {
 	getState(): Promise<ReviewPanelStateEnvelope>;
 	refresh(): Promise<ReviewPanelStateEnvelope>;
 	addNote(input: AddReviewNoteParams): Promise<ReviewPanelStateEnvelope>;
+	updateNote(input: UpdateReviewNoteParams): Promise<ReviewPanelStateEnvelope>;
+	updateNoteAnchor(id: string, anchor: ReviewAnchor, anchorState: ReviewAnchorState): Promise<void>;
 	deleteNote(id: string): Promise<ReviewPanelStateEnvelope>;
+	previewBundle(): Promise<ReviewBundlePreview>;
+	copyBundle(): Promise<ReviewCopyResult>;
 }
 
 export class ReviewPanelStateService extends Disposable implements IReviewPanelStateService {
@@ -45,7 +52,6 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 
 	constructor(
 		@IReviewStore private readonly reviewStore: IReviewStore,
-		@ICommandRegistrationService private readonly commandRegistrationService: ICommandRegistrationService,
 		@IDiagnosticsService private readonly diagnostics: IDiagnosticsService
 	) {
 		super();
@@ -90,14 +96,16 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 
 	async addNote(input: AddReviewNoteParams): Promise<ReviewPanelStateEnvelope> {
 		const operation = this.diagnostics.startOperation("reviewState", "note.add");
-		const activeFile = this.getActiveFileSnapshot();
+		const now = new Date().toISOString();
 		const note: ReviewNote = {
-			id: randomUUID(),
-			body: input.body,
-			filePath: input.filePath ?? activeFile?.filePath,
-			line: input.line ?? activeFile?.selection?.startLine,
-			range: input.range ?? activeFile?.selection,
-			createdAt: new Date().toISOString()
+			id: input.id ?? randomUUID(),
+			body: input.body.trim(),
+			kind: input.kind ?? "change",
+			status: "draft",
+			anchor: input.anchor,
+			anchorState: input.anchor ? "attached" : "orphaned",
+			createdAt: now,
+			updatedAt: now
 		};
 		try {
 			await this.reviewStore.addNote(note);
@@ -110,6 +118,33 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 		}
 	}
 
+	async updateNote(input: UpdateReviewNoteParams): Promise<ReviewPanelStateEnvelope> {
+		const state = await this.reviewStore.getState();
+		const current = state.notes.find((note) => note.id === input.id);
+		if (!current) {
+			throw new Error("Review note not found");
+		}
+		const note: ReviewNote = {
+			...current,
+			body: input.body ?? current.body,
+			kind: input.kind ?? current.kind,
+			status: input.status ?? current.status,
+			resolution: input.status === "draft" ? undefined : (input.resolution ?? current.resolution),
+			updatedAt: new Date().toISOString()
+		};
+		await this.reviewStore.updateNote(note);
+		return this.refresh();
+	}
+
+	async updateNoteAnchor(id: string, anchor: ReviewAnchor, anchorState: ReviewAnchorState): Promise<void> {
+		const state = await this.reviewStore.getState();
+		const current = state.notes.find((note) => note.id === id);
+		if (!current) {
+			return;
+		}
+		await this.reviewStore.updateNote({ ...current, anchor, anchorState, updatedAt: new Date().toISOString() });
+	}
+
 	async deleteNote(id: string): Promise<ReviewPanelStateEnvelope> {
 		const operation = this.diagnostics.startOperation("reviewState", "note.delete");
 		try {
@@ -117,6 +152,37 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 			const state = deleted ? await this.refresh() : await this.getState();
 			operation.complete(() => ({ deleted, revision: state.revision, noteCount: state.value.notes.length }));
 			return state;
+		} catch (error) {
+			operation.fail(error);
+			throw error;
+		}
+	}
+
+	async previewBundle(): Promise<ReviewBundlePreview> {
+		const state = await this.reviewStore.getState();
+		const notes = state.notes.filter((note) => isActionableStatus(note.status));
+		const filePaths = new Set(
+			notes.map((note) => note.anchor?.filePath).filter((value): value is string => Boolean(value))
+		);
+		return {
+			markdown: buildReviewBundle(state.effectiveInstructions, notes),
+			fileCount: filePaths.size,
+			noteCount: notes.length,
+			orphanedCount: notes.filter((note) => note.anchorState === "orphaned").length
+		};
+	}
+
+	async copyBundle(): Promise<ReviewCopyResult> {
+		const operation = this.diagnostics.startOperation("reviewState", "bundle.copy");
+		try {
+			const preview = await this.previewBundle();
+			if (preview.noteCount === 0) {
+				throw new Error("Add at least one open review note before copying");
+			}
+			await vscode.env.clipboard.writeText(preview.markdown);
+			const message = "Review bundle copied to the clipboard.";
+			operation.complete(() => ({ noteCount: preview.noteCount }));
+			return { message };
 		} catch (error) {
 			operation.fail(error);
 			throw error;
@@ -147,16 +213,10 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 			if (this.refreshRequested) {
 				continue;
 			}
-
-			accepted = {
-				sourceId: this.sourceId,
-				revision: ++this.revision,
-				value
-			};
+			accepted = { sourceId: this.sourceId, revision: ++this.revision, value };
 			this.latestState = accepted;
 			this.stateEmitter.fire(accepted);
 		} while (this.refreshRequested);
-
 		if (!accepted) {
 			throw new Error("Review state refresh completed without producing a snapshot");
 		}
@@ -174,32 +234,14 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 	}
 
 	private async buildState(): Promise<ReviewPanelState> {
-		const [workspace, persistedState, agentTargets] = await Promise.all([
+		const [workspace, persistedState] = await Promise.all([
 			this.getWorkspaceSnapshot(),
-			this.reviewStore.getState(),
-			this.getAgentTargets()
+			this.reviewStore.getState()
 		]);
-		return { workspace, notes: persistedState.notes, agentTargets };
-	}
-
-	private async getAgentTargets(): Promise<AgentTarget[]> {
-		const commands = await this.commandRegistrationService.getCommands(true);
-		return [
-			{
-				id: "codex",
-				label: "Codex",
-				available: false,
-				detail: commands.includes(AiReviewCommand.CodexOpenSidebar)
-					? "Codex command bridge detected; handoff not wired yet"
-					: "Pending command integration"
-			},
-			{
-				id: "copilot",
-				label: "Copilot Chat",
-				available: commands.includes(AiReviewCommand.CopilotCliOpenInCopilotCli),
-				detail: "GitHub Copilot extension command bridge"
-			}
-		];
+		return {
+			workspace,
+			notes: persistedState.notes
+		};
 	}
 
 	private async getWorkspaceSnapshot(): Promise<WorkspaceSnapshot> {
@@ -209,7 +251,6 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 			? vscode.workspace.getWorkspaceFolder(activeFileUri)
 			: vscode.workspace.workspaceFolders?.[0];
 		const workspaceFolder = activeWorkspaceFolder ?? vscode.workspace.workspaceFolders?.[0];
-
 		return {
 			name: workspaceFolder?.name ?? "No workspace",
 			uri: workspaceFolder?.uri.toString(),
@@ -224,17 +265,19 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 		if (!editor) {
 			return undefined;
 		}
-
-		const selection = editor.selection;
 		return {
 			filePath: vscode.workspace.asRelativePath(editor.document.uri, false),
 			uri: editor.document.uri.toString(),
-			selection: selection.isEmpty ? undefined : toReviewRange(selection)
+			selection: editor.selection.isEmpty ? undefined : toReviewRange(editor.selection)
 		};
 	}
 }
 
-function toReviewRange(range: vscode.Range): ReviewRange {
+function isActionableStatus(status: ReviewNote["status"]): boolean {
+	return status === "draft" || status === "in_progress" || status === "blocked";
+}
+
+export function toReviewRange(range: vscode.Range): ReviewRange {
 	return {
 		startLine: range.start.line + 1,
 		startCharacter: range.start.character + 1,
@@ -243,12 +286,15 @@ function toReviewRange(range: vscode.Range): ReviewRange {
 	};
 }
 
+export function toVsCodeRange(range: ReviewRange): vscode.Range {
+	return new vscode.Range(range.startLine - 1, range.startCharacter - 1, range.endLine - 1, range.endCharacter - 1);
+}
+
 async function getGitBranch(cwd: string | undefined, diagnostics: IDiagnosticsService): Promise<string | undefined> {
 	if (!cwd) {
 		diagnostics.debug("git", "branch.skipped", () => ({ reason: "missingWorkspace" }));
 		return undefined;
 	}
-
 	const operation = diagnostics.startOperation("git", "branch.resolve");
 	try {
 		const stdout = await new Promise<string>((resolve, reject) => {

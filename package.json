@@ -1,7 +1,7 @@
 {
   "name": "aireview",
   "displayName": "AI Review Router",
-  "description": "Collect review comments from Git changes and hand them off to Codex or GitHub Copilot Chat.",
+  "description": "Annotate code and hand review notes to Codex, Claude Code, or GitHub Copilot through MCP.",
   "version": "0.0.1",
   "publisher": "aaskhan",
   "private": true,
@@ -17,17 +17,193 @@
     "Other"
   ],
   "activationEvents": [
+    "onStartupFinished",
     "onCommand:aireview.openReviewPanel",
+    "onCommand:aireview.addReviewNote",
+    "onCommand:aireview.openSettings",
+    "onLanguageModelTool:aireview",
     "onView:aireview.reviewView"
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "AI Review",
+      "properties": {
+        "aireview.defaultOverallInstructions": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "editPresentation": "multilineText",
+          "markdownDescription": "Default instructions included with every AI Review implementation request. A workspace value overrides the user value."
+        }
+      }
+    },
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "aireview.mcpProvider",
+        "label": "AI Review"
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "aireview",
+        "displayName": "AI Review",
+        "userDescription": "Read annotations from the AI Review extension.",
+        "modelDescription": "Read open AI Review code annotations and overall instructions. Use only when the user explicitly asks for AI Review or references #aireview.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      }
+    ],
     "commands": [
       {
         "command": "aireview.openReviewPanel",
         "title": "AI Review: Open Review View"
+      },
+      {
+        "command": "aireview.addReviewNote",
+        "title": "AI Review: Add Note to Selection",
+        "icon": "$(comment-add)"
+      },
+      {
+        "command": "aireview.openSettings",
+        "title": "AI Review: Open Settings",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "aireview.comment.create",
+        "title": "Add Review Note"
+      },
+      {
+        "command": "aireview.comment.edit",
+        "title": "Edit",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "aireview.comment.save",
+        "title": "Save"
+      },
+      {
+        "command": "aireview.comment.cancelEdit",
+        "title": "Cancel"
+      },
+      {
+        "command": "aireview.comment.delete",
+        "title": "Delete",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "aireview.comment.resolve",
+        "title": "Resolve",
+        "icon": "$(check)"
+      },
+      {
+        "command": "aireview.comment.reopen",
+        "title": "Reopen",
+        "icon": "$(history)"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "aireview.comment.create",
+          "when": "false"
+        },
+        {
+          "command": "aireview.comment.edit",
+          "when": "false"
+        },
+        {
+          "command": "aireview.comment.save",
+          "when": "false"
+        },
+        {
+          "command": "aireview.comment.cancelEdit",
+          "when": "false"
+        },
+        {
+          "command": "aireview.comment.delete",
+          "when": "false"
+        },
+        {
+          "command": "aireview.comment.resolve",
+          "when": "false"
+        },
+        {
+          "command": "aireview.comment.reopen",
+          "when": "false"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "aireview.addReviewNote",
+          "group": "navigation@20",
+          "when": "editorTextFocus && editorHasSelection"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "aireview.addReviewNote",
+          "group": "navigation",
+          "when": "view == aireview.reviewView"
+        },
+        {
+          "command": "aireview.openSettings",
+          "group": "navigation@2",
+          "when": "view == aireview.reviewView"
+        }
+      ],
+      "comments/commentThread/context": [
+        {
+          "command": "aireview.comment.create",
+          "group": "inline",
+          "when": "commentController == aireview.comments && commentThreadIsEmpty"
+        }
+      ],
+      "comments/commentThread/title": [
+        {
+          "command": "aireview.comment.resolve",
+          "group": "navigation@1",
+          "when": "commentController == aireview.comments && commentThread == aireview.unresolved"
+        },
+        {
+          "command": "aireview.comment.reopen",
+          "group": "navigation@1",
+          "when": "commentController == aireview.comments && commentThread == aireview.resolved"
+        },
+        {
+          "command": "aireview.comment.delete",
+          "group": "navigation@2",
+          "when": "commentController == aireview.comments && !commentThreadIsEmpty"
+        }
+      ],
+      "comments/comment/title": [
+        {
+          "command": "aireview.comment.edit",
+          "group": "navigation@1",
+          "when": "commentController == aireview.comments && comment == aireview.note"
+        },
+        {
+          "command": "aireview.comment.delete",
+          "group": "navigation@2",
+          "when": "commentController == aireview.comments && comment == aireview.note"
+        }
+      ],
+      "comments/comment/context": [
+        {
+          "command": "aireview.comment.cancelEdit",
+          "group": "inline@1",
+          "when": "commentController == aireview.comments && comment == aireview.note"
+        },
+        {
+          "command": "aireview.comment.save",
+          "group": "inline@2",
+          "when": "commentController == aireview.comments && comment == aireview.note"
+        }
+      ]
+    },
     "viewsContainers": {
       "secondarySidebar": [
         {
@@ -58,7 +234,7 @@
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
-    "test:integration": "npm run compile:production && node scripts/run-integration-tests.mjs",
+    "test:integration": "npm run compile:production && node test/mcp/index.cjs && node scripts/run-integration-tests.mjs",
     "package:check": "node scripts/check-package-contents.mjs",
     "watch": "node esbuild.js --watch",
     "package": "vsce package",
@@ -82,12 +258,14 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.23.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "tailwind-merge": "^3.6.0",
-    "vscode-jsonrpc": "^9.0.1"
+    "vscode-jsonrpc": "^9.0.1",
+    "zod": "^4.4.3"
   }
 }

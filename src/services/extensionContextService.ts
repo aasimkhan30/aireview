@@ -6,10 +6,16 @@ export const IExtensionContextService = createServiceIdentifier<IExtensionContex
 export interface IExtensionContextService {
 	readonly _serviceBrand: undefined;
 	readonly context: vscode.ExtensionContext;
+	readonly workspaceRoots: readonly string[];
+	readonly dataDirectory: string;
 }
 
 export class ExtensionContextService implements IExtensionContextService {
 	declare readonly _serviceBrand: undefined;
 
-	constructor(readonly context: vscode.ExtensionContext) {}
+	constructor(
+		readonly context: vscode.ExtensionContext,
+		readonly workspaceRoots: readonly string[],
+		readonly dataDirectory: string
+	) {}
 }
