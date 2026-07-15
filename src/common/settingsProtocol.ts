@@ -1,25 +1,25 @@
 import { RequestType, RequestType0 } from "vscode-jsonrpc";
 
 export const SettingsRpc = {
-	getState: new RequestType0<AiReviewSettingsState, void>("aireview.settings.getState"),
-	setInstructions: new RequestType<SetDefaultInstructionsParams, AiReviewSettingsState, void>(
-		"aireview.settings.setInstructions"
+	getState: new RequestType0<RequestChangesSettingsState, void>("requestchanges.settings.getState"),
+	setInstructions: new RequestType<SetDefaultInstructionsParams, RequestChangesSettingsState, void>(
+		"requestchanges.settings.setInstructions"
 	),
-	installMcp: new RequestType<ManageMcpInstallationParams, AiReviewSettingsState, void>(
-		"aireview.settings.installMcp"
+	installMcp: new RequestType<ManageMcpInstallationParams, RequestChangesSettingsState, void>(
+		"requestchanges.settings.installMcp"
 	),
-	uninstallMcp: new RequestType<ManageMcpInstallationParams, AiReviewSettingsState, void>(
-		"aireview.settings.uninstallMcp"
+	uninstallMcp: new RequestType<ManageMcpInstallationParams, RequestChangesSettingsState, void>(
+		"requestchanges.settings.uninstallMcp"
 	),
-	revealMcpConfig: new RequestType<ManageMcpInstallationParams, void, void>("aireview.settings.revealMcpConfig"),
-	revealData: new RequestType0<void, void>("aireview.settings.revealData")
+	revealMcpConfig: new RequestType<ManageMcpInstallationParams, void, void>("requestchanges.settings.revealMcpConfig"),
+	revealData: new RequestType0<void, void>("requestchanges.settings.revealData")
 } as const;
 
 export type SettingsScope = "workspace" | "user";
 export type McpClientId = "codex" | "claude" | "copilotCli" | "copilotVscode";
 export type McpInstallationStatus = "absent" | "managed" | "external" | "invalid";
 
-export interface AiReviewSettingsState {
+export interface RequestChangesSettingsState {
 	readonly instructions: {
 		readonly user: string;
 		readonly workspace: string;

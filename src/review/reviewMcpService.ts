@@ -6,8 +6,8 @@ import { createServiceIdentifier } from "../util/di";
 import { Disposable } from "../util/vs/base/common/lifecycle";
 import { IReviewStore } from "./reviewStore";
 
-const mcpProviderId = "aireview.mcpProvider";
-const languageModelToolName = "aireview";
+const mcpProviderId = "requestchanges.mcpProvider";
+const languageModelToolName = "requestchanges";
 
 export const IReviewMcpService = createServiceIdentifier<IReviewMcpService>("reviewMcpService");
 
@@ -15,7 +15,7 @@ export interface IReviewMcpService {
 	readonly _serviceBrand: undefined;
 }
 
-/** Registers the bundled server for VS Code and the explicit #aireview read tool. */
+/** Registers the bundled server for VS Code and the explicit #requestchanges read tool. */
 export class ReviewMcpService extends Disposable implements IReviewMcpService {
 	declare readonly _serviceBrand: undefined;
 
@@ -30,13 +30,13 @@ export class ReviewMcpService extends Disposable implements IReviewMcpService {
 			const serverPath = vscode.Uri.joinPath(
 				extensionContextService.context.extensionUri,
 				"out",
-				"aireview-mcp.js"
+				"requestchanges-mcp.js"
 			).fsPath;
 			this._register(
 				vscode.lm.registerMcpServerDefinitionProvider(mcpProviderId, {
 					provideMcpServerDefinitions: () => {
 						const definition = new vscode.McpStdioServerDefinition(
-							"aireview",
+							"requestchanges",
 							process.execPath,
 							[
 								serverPath,
@@ -62,15 +62,18 @@ export class ReviewMcpService extends Disposable implements IReviewMcpService {
 			vscode.lm.registerTool(languageModelToolName, {
 				invoke: async () => {
 					const state = await reviewStore.getState();
-					const notes = state.notes.filter((note) => isActionable(note));
-					diagnostics.info("reviewState", "languageModelTool.invoked", () => ({ noteCount: notes.length }));
+					const comments = state.notes.filter((note) => isActionable(note));
+					diagnostics.info("reviewState", "languageModelTool.invoked", () => ({
+						commentCount: comments.length
+					}));
 					return new vscode.LanguageModelToolResult([
 						new vscode.LanguageModelTextPart(
 							JSON.stringify(
 								{
 									revision: state.revision,
 									overallInstructions: state.effectiveInstructions,
-									notes
+									commentCount: comments.length,
+									comments
 								},
 								undefined,
 								2
@@ -78,7 +81,7 @@ export class ReviewMcpService extends Disposable implements IReviewMcpService {
 						)
 					]);
 				},
-				prepareInvocation: () => ({ invocationMessage: "Reading AI Review annotations" })
+				prepareInvocation: () => ({ invocationMessage: "Reading Request Changes review comments" })
 			})
 		);
 	}

@@ -2,14 +2,14 @@ import { NotificationType, RequestType, RequestType0 } from "vscode-jsonrpc";
 import type { StateEnvelope } from "./webviewProtocol";
 
 export const ReviewRpc = {
-	getState: new RequestType0<ReviewPanelStateEnvelope, void>("aireview.review.getState"),
-	startAnnotation: new RequestType0<void, void>("aireview.review.startAnnotation"),
-	updateNote: new RequestType<UpdateReviewNoteParams, ReviewPanelStateEnvelope, void>("aireview.review.updateNote"),
-	deleteNote: new RequestType<DeleteReviewNoteParams, ReviewPanelStateEnvelope, void>("aireview.review.deleteNote"),
-	revealNote: new RequestType<ReviewNoteIdParams, void, void>("aireview.review.revealNote"),
-	previewBundle: new RequestType0<ReviewBundlePreview, void>("aireview.review.previewBundle"),
-	copyBundle: new RequestType0<ReviewCopyResult, void>("aireview.review.copyBundle"),
-	stateChanged: new NotificationType<ReviewPanelStateEnvelope>("aireview.review.stateChanged")
+	getState: new RequestType0<ReviewPanelStateEnvelope, void>("requestchanges.review.getState"),
+	startAnnotation: new RequestType0<void, void>("requestchanges.review.startAnnotation"),
+	updateNote: new RequestType<UpdateReviewNoteParams, ReviewPanelStateEnvelope, void>("requestchanges.review.updateNote"),
+	deleteNote: new RequestType<DeleteReviewNoteParams, ReviewPanelStateEnvelope, void>("requestchanges.review.deleteNote"),
+	revealNote: new RequestType<ReviewNoteIdParams, void, void>("requestchanges.review.revealNote"),
+	previewBundle: new RequestType0<ReviewBundlePreview, void>("requestchanges.review.previewBundle"),
+	copyBundle: new RequestType0<ReviewCopyResult, void>("requestchanges.review.copyBundle"),
+	stateChanged: new NotificationType<ReviewPanelStateEnvelope>("requestchanges.review.stateChanged")
 } as const;
 
 export interface ReviewPanelState {

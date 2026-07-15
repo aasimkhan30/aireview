@@ -1,7 +1,7 @@
 {
-  "name": "aireview",
-  "displayName": "AI Review Router",
-  "description": "Annotate code and hand review notes to Codex, Claude Code, or GitHub Copilot through MCP.",
+  "name": "request-changes",
+  "displayName": "Request Changes",
+  "description": "Review agent-written code like a pull request and send requested changes back through MCP.",
   "version": "0.0.1",
   "publisher": "aaskhan",
   "private": true,
@@ -18,38 +18,38 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:aireview.openReviewPanel",
-    "onCommand:aireview.addReviewNote",
-    "onCommand:aireview.openSettings",
-    "onLanguageModelTool:aireview",
-    "onView:aireview.reviewView"
+    "onCommand:requestchanges.openReviewPanel",
+    "onCommand:requestchanges.addReviewNote",
+    "onCommand:requestchanges.openSettings",
+    "onLanguageModelTool:requestchanges",
+    "onView:requestchanges.reviewView"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
-      "title": "AI Review",
+      "title": "Request Changes",
       "properties": {
-        "aireview.defaultOverallInstructions": {
+        "requestchanges.defaultOverallInstructions": {
           "type": "string",
           "default": "",
           "scope": "resource",
           "editPresentation": "multilineText",
-          "markdownDescription": "Default instructions included with every AI Review implementation request. A workspace value overrides the user value."
+          "markdownDescription": "Default instructions included whenever an agent addresses your review comments. A workspace value overrides the user value."
         }
       }
     },
     "mcpServerDefinitionProviders": [
       {
-        "id": "aireview.mcpProvider",
-        "label": "AI Review"
+        "id": "requestchanges.mcpProvider",
+        "label": "Request Changes"
       }
     ],
     "languageModelTools": [
       {
-        "name": "aireview",
-        "displayName": "AI Review",
-        "userDescription": "Read annotations from the AI Review extension.",
-        "modelDescription": "Read open AI Review code annotations and overall instructions. Use only when the user explicitly asks for AI Review or references #aireview.",
+        "name": "requestchanges",
+        "displayName": "Request Changes",
+        "userDescription": "Read open review comments for agent-written code.",
+        "modelDescription": "Read open review comments and overall instructions from Request Changes. Use only when the user explicitly asks for Request Changes or references #requestchanges.",
         "inputSchema": {
           "type": "object",
           "properties": {},
@@ -59,48 +59,48 @@
     ],
     "commands": [
       {
-        "command": "aireview.openReviewPanel",
-        "title": "AI Review: Open Review View"
+        "command": "requestchanges.openReviewPanel",
+        "title": "Request Changes: Open Review Comments"
       },
       {
-        "command": "aireview.addReviewNote",
-        "title": "AI Review: Add Note to Selection",
+        "command": "requestchanges.addReviewNote",
+        "title": "Request Changes: Add Review Comment to Selection",
         "icon": "$(comment-add)"
       },
       {
-        "command": "aireview.openSettings",
-        "title": "AI Review: Open Settings",
+        "command": "requestchanges.openSettings",
+        "title": "Request Changes: Open Settings",
         "icon": "$(gear)"
       },
       {
-        "command": "aireview.comment.create",
-        "title": "Add Review Note"
+        "command": "requestchanges.comment.create",
+        "title": "Add review comment"
       },
       {
-        "command": "aireview.comment.edit",
+        "command": "requestchanges.comment.edit",
         "title": "Edit",
         "icon": "$(edit)"
       },
       {
-        "command": "aireview.comment.save",
+        "command": "requestchanges.comment.save",
         "title": "Save"
       },
       {
-        "command": "aireview.comment.cancelEdit",
+        "command": "requestchanges.comment.cancelEdit",
         "title": "Cancel"
       },
       {
-        "command": "aireview.comment.delete",
+        "command": "requestchanges.comment.delete",
         "title": "Delete",
         "icon": "$(trash)"
       },
       {
-        "command": "aireview.comment.resolve",
+        "command": "requestchanges.comment.resolve",
         "title": "Resolve",
         "icon": "$(check)"
       },
       {
-        "command": "aireview.comment.reopen",
+        "command": "requestchanges.comment.reopen",
         "title": "Reopen",
         "icon": "$(history)"
       }
@@ -108,117 +108,117 @@
     "menus": {
       "commandPalette": [
         {
-          "command": "aireview.comment.create",
+          "command": "requestchanges.comment.create",
           "when": "false"
         },
         {
-          "command": "aireview.comment.edit",
+          "command": "requestchanges.comment.edit",
           "when": "false"
         },
         {
-          "command": "aireview.comment.save",
+          "command": "requestchanges.comment.save",
           "when": "false"
         },
         {
-          "command": "aireview.comment.cancelEdit",
+          "command": "requestchanges.comment.cancelEdit",
           "when": "false"
         },
         {
-          "command": "aireview.comment.delete",
+          "command": "requestchanges.comment.delete",
           "when": "false"
         },
         {
-          "command": "aireview.comment.resolve",
+          "command": "requestchanges.comment.resolve",
           "when": "false"
         },
         {
-          "command": "aireview.comment.reopen",
+          "command": "requestchanges.comment.reopen",
           "when": "false"
         }
       ],
       "editor/context": [
         {
-          "command": "aireview.addReviewNote",
+          "command": "requestchanges.addReviewNote",
           "group": "navigation@20",
           "when": "editorTextFocus && editorHasSelection"
         }
       ],
       "view/title": [
         {
-          "command": "aireview.addReviewNote",
+          "command": "requestchanges.addReviewNote",
           "group": "navigation",
-          "when": "view == aireview.reviewView"
+          "when": "view == requestchanges.reviewView"
         },
         {
-          "command": "aireview.openSettings",
+          "command": "requestchanges.openSettings",
           "group": "navigation@2",
-          "when": "view == aireview.reviewView"
+          "when": "view == requestchanges.reviewView"
         }
       ],
       "comments/commentThread/context": [
         {
-          "command": "aireview.comment.create",
+          "command": "requestchanges.comment.create",
           "group": "inline",
-          "when": "commentController == aireview.comments && commentThreadIsEmpty"
+          "when": "commentController == requestchanges.comments && commentThreadIsEmpty"
         }
       ],
       "comments/commentThread/title": [
         {
-          "command": "aireview.comment.resolve",
+          "command": "requestchanges.comment.resolve",
           "group": "navigation@1",
-          "when": "commentController == aireview.comments && commentThread == aireview.unresolved"
+          "when": "commentController == requestchanges.comments && commentThread == requestchanges.unresolved"
         },
         {
-          "command": "aireview.comment.reopen",
+          "command": "requestchanges.comment.reopen",
           "group": "navigation@1",
-          "when": "commentController == aireview.comments && commentThread == aireview.resolved"
+          "when": "commentController == requestchanges.comments && commentThread == requestchanges.resolved"
         },
         {
-          "command": "aireview.comment.delete",
+          "command": "requestchanges.comment.delete",
           "group": "navigation@2",
-          "when": "commentController == aireview.comments && !commentThreadIsEmpty"
+          "when": "commentController == requestchanges.comments && !commentThreadIsEmpty"
         }
       ],
       "comments/comment/title": [
         {
-          "command": "aireview.comment.edit",
+          "command": "requestchanges.comment.edit",
           "group": "navigation@1",
-          "when": "commentController == aireview.comments && comment == aireview.note"
+          "when": "commentController == requestchanges.comments && comment == requestchanges.note"
         },
         {
-          "command": "aireview.comment.delete",
+          "command": "requestchanges.comment.delete",
           "group": "navigation@2",
-          "when": "commentController == aireview.comments && comment == aireview.note"
+          "when": "commentController == requestchanges.comments && comment == requestchanges.note"
         }
       ],
       "comments/comment/context": [
         {
-          "command": "aireview.comment.cancelEdit",
+          "command": "requestchanges.comment.cancelEdit",
           "group": "inline@1",
-          "when": "commentController == aireview.comments && comment == aireview.note"
+          "when": "commentController == requestchanges.comments && comment == requestchanges.note"
         },
         {
-          "command": "aireview.comment.save",
+          "command": "requestchanges.comment.save",
           "group": "inline@2",
-          "when": "commentController == aireview.comments && comment == aireview.note"
+          "when": "commentController == requestchanges.comments && comment == requestchanges.note"
         }
       ]
     },
     "viewsContainers": {
       "secondarySidebar": [
         {
-          "id": "aireview",
-          "title": "AI Review",
+          "id": "requestchanges",
+          "title": "Request Changes",
           "icon": "$(comment-discussion)"
         }
       ]
     },
     "views": {
-      "aireview": [
+      "requestchanges": [
         {
           "type": "webview",
-          "id": "aireview.reviewView",
-          "name": "Review Notes"
+          "id": "requestchanges.reviewView",
+          "name": "Review Comments"
         }
       ]
     }

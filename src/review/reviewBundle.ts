@@ -1,7 +1,7 @@
 import type { ReviewNote } from "../common/reviewProtocol";
 
 export function buildReviewBundle(overallInstructions: string, notes: readonly ReviewNote[]): string {
-	const sections = ["# AI Review implementation request"];
+	const sections = ["# Requested code changes"];
 	if (overallInstructions) {
 		sections.push(`## Overall instructions\n\n${overallInstructions}`);
 	}

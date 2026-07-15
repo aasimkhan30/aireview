@@ -5,17 +5,17 @@ import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mc
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import type { ReviewNote, ReviewNoteStatus, ReviewResolution } from "../common/reviewProtocol";
-import { getDefaultAiReviewDataDirectory, ReviewLedger } from "../review/reviewLedger";
+import { getDefaultRequestChangesDataDirectory, ReviewLedger } from "../review/reviewLedger";
 
 const serverVersion = "0.0.1";
 const options = readOptions(process.argv.slice(2));
-const clientName = options.client ?? process.env.AIREVIEW_CLIENT ?? "MCP agent";
+const clientName = options.client ?? process.env.REQUEST_CHANGES_CLIENT ?? "MCP agent";
 
 const server = new McpServer(
-	{ name: "aireview", version: serverVersion },
+	{ name: "requestchanges", version: serverVersion },
 	{
 		instructions:
-			"AI Review exposes code annotations for the current workspace. Use these tools only when the user explicitly asks for AI Review or mentions aireview. Read open notes with the aireview tool, edit code using the client's normal coding tools, run appropriate verification, then report every note as addressed or blocked. Addressed notes still require human acceptance."
+			"Request Changes exposes human review comments on agent-written code. Use these tools only when the user explicitly asks for Request Changes or mentions requestchanges. Read open comments with the requestchanges tool, edit code using the client's normal coding tools, run appropriate verification, then report every comment as addressed or blocked. Addressed comments still require human acceptance."
 	}
 );
 
@@ -26,11 +26,11 @@ const workspaceSchema = z
 	.strict();
 
 server.registerTool(
-	"aireview",
+	"requestchanges",
 	{
-		title: "AI Review annotations",
+		title: "Request Changes review comments",
 		description:
-			"Read the open AI Review annotations and overall instructions for this workspace. Invoke only when the user explicitly asks for AI Review or references #aireview.",
+			"Read open review comments and overall instructions for agent-written code in this workspace. Invoke only when the user explicitly asks for Request Changes or references #requestchanges.",
 		inputSchema: workspaceSchema,
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 	},
@@ -46,20 +46,20 @@ server.registerTool(
 );
 
 server.registerTool(
-	"claim_review_notes",
+	"claim_review_comments",
 	{
-		title: "Claim AI Review notes",
-		description: "Mark open AI Review notes as in progress before implementing them.",
-		inputSchema: workspaceSchema.extend({ noteIds: z.array(z.string().min(1)).optional() }),
+		title: "Claim review comments",
+		description: "Mark open review comments as in progress before addressing them.",
+		inputSchema: workspaceSchema.extend({ commentIds: z.array(z.string().min(1)).optional() }),
 		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 	},
-	async ({ workspaceRoot, noteIds }) => {
+	async ({ workspaceRoot, commentIds }) => {
 		const ledger = await getLedger(workspaceRoot);
 		const now = new Date().toISOString();
 		const state = await ledger.mutate((current) => ({
 			...current,
 			notes: current.notes.map((note) =>
-				isSelected(note, noteIds) && isActionable(note.status)
+				isSelected(note, commentIds) && isActionable(note.status)
 					? {
 							...note,
 							status: "in_progress",
@@ -75,7 +75,7 @@ server.registerTool(
 
 const addressedResultSchema = z
 	.object({
-		noteId: z.string().min(1),
+		commentId: z.string().min(1),
 		summary: z.string().min(1).max(10_000),
 		changedFiles: z.array(z.string().min(1)).max(200).default([]),
 		verification: z.string().max(10_000).optional()
@@ -83,17 +83,17 @@ const addressedResultSchema = z
 	.strict();
 
 server.registerTool(
-	"report_notes_addressed",
+	"report_comments_addressed",
 	{
-		title: "Report AI Review notes addressed",
+		title: "Report review comments addressed",
 		description:
-			"Report one or more annotations as addressed after making the requested code changes and verifying them. This does not resolve the notes; a human accepts them in AI Review.",
+			"Report review comments as addressed after making and verifying the requested code changes. This does not resolve the comments; a human accepts them in Request Changes.",
 		inputSchema: workspaceSchema.extend({ results: z.array(addressedResultSchema).min(1).max(100) }),
 		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 	},
 	async ({ workspaceRoot, results }) => {
 		const ledger = await getLedger(workspaceRoot);
-		const resultById = new Map(results.map((result) => [result.noteId, result]));
+		const resultById = new Map(results.map((result) => [result.commentId, result]));
 		const now = new Date().toISOString();
 		const state = await ledger.mutate((current) => ({
 			...current,
@@ -116,19 +116,21 @@ server.registerTool(
 	}
 );
 
-const blockedResultSchema = z.object({ noteId: z.string().min(1), reason: z.string().min(1).max(10_000) }).strict();
+const blockedResultSchema = z
+	.object({ commentId: z.string().min(1), reason: z.string().min(1).max(10_000) })
+	.strict();
 
 server.registerTool(
-	"report_notes_blocked",
+	"report_comments_blocked",
 	{
-		title: "Report AI Review notes blocked",
-		description: "Report annotations that could not be implemented and explain the blocking condition.",
+		title: "Report review comments blocked",
+		description: "Report review comments that could not be addressed and explain the blocking condition.",
 		inputSchema: workspaceSchema.extend({ results: z.array(blockedResultSchema).min(1).max(100) }),
 		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 	},
 	async ({ workspaceRoot, results }) => {
 		const ledger = await getLedger(workspaceRoot);
-		const resultById = new Map(results.map((result) => [result.noteId, result]));
+		const resultById = new Map(results.map((result) => [result.commentId, result]));
 		const now = new Date().toISOString();
 		const state = await ledger.mutate((current) => ({
 			...current,
@@ -156,8 +158,8 @@ server.registerTool(
 server.registerTool(
 	"get_review_status",
 	{
-		title: "Get AI Review status",
-		description: "Return counts and outcomes for the current AI Review workspace.",
+		title: "Get review status",
+		description: "Return counts and outcomes for review comments in the current workspace.",
 		inputSchema: workspaceSchema,
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 	},
@@ -168,11 +170,11 @@ server.registerTool(
 );
 
 server.registerResource(
-	"open-reviews",
-	"aireview://reviews/open",
+	"open-review-comments",
+	"requestchanges://comments/open",
 	{
-		title: "Open AI Review annotations",
-		description: "Open review notes for the current workspace",
+		title: "Open review comments",
+		description: "Open review comments for agent-written code in the current workspace",
 		mimeType: "application/json"
 	},
 	async (uri) => {
@@ -188,21 +190,21 @@ server.registerResource(
 );
 
 server.registerResource(
-	"review-note",
-	new ResourceTemplate("aireview://reviews/{noteId}", { list: undefined }),
-	{ title: "AI Review annotation", description: "A single AI Review note", mimeType: "application/json" },
+	"review-comment",
+	new ResourceTemplate("requestchanges://comments/{commentId}", { list: undefined }),
+	{ title: "Review comment", description: "A single Request Changes review comment", mimeType: "application/json" },
 	async (uri, variables) => {
 		const state = await (await getLedger()).read();
-		const note = state.notes.find((candidate) => candidate.id === String(variables.noteId));
-		return resourceResult(uri, JSON.stringify(note ?? { error: "Review note not found" }, undefined, 2));
+		const note = state.notes.find((candidate) => candidate.id === String(variables.commentId));
+		return resourceResult(uri, JSON.stringify(note ?? { error: "Review comment not found" }, undefined, 2));
 	}
 );
 
 server.registerPrompt(
-	"fix_review",
+	"address_review_comments",
 	{
-		title: "Fix AI Review annotations",
-		description: "Implement all open AI Review annotations and report each outcome"
+		title: "Address review comments",
+		description: "Implement all requested changes and report the outcome of each review comment"
 	},
 	async () => ({
 		messages: [
@@ -210,7 +212,7 @@ server.registerPrompt(
 				role: "user",
 				content: {
 					type: "text",
-					text: "Use the aireview tool to read all open annotations. Claim them, implement each requested change with your normal coding tools, run relevant verification, and report every note as addressed or blocked. Do not resolve notes; human acceptance happens in the AI Review extension."
+					text: "Use the requestchanges tool to read all open review comments. Claim them, implement each requested change with your normal coding tools, run relevant verification, and report every comment as addressed or blocked. Do not resolve comments; human acceptance happens in the Request Changes extension."
 				}
 			}
 		]
@@ -220,7 +222,7 @@ server.registerPrompt(
 async function getLedger(workspaceRoot?: string): Promise<ReviewLedger> {
 	return ReviewLedger.open(
 		await resolveWorkspaceRoot(workspaceRoot),
-		options.dataDirectory ?? getDefaultAiReviewDataDirectory()
+		options.dataDirectory ?? getDefaultRequestChangesDataDirectory()
 	);
 }
 
@@ -252,14 +254,14 @@ async function getClientRoots(): Promise<string[]> {
 	}
 }
 
-function formatReviewContext(notes: readonly ReviewNote[], state: Awaited<ReturnType<ReviewLedger["read"]>>): string {
+function formatReviewContext(comments: readonly ReviewNote[], state: Awaited<ReturnType<ReviewLedger["read"]>>): string {
 	return JSON.stringify(
 		{
 			workspace: state.workspace,
 			revision: state.revision,
 			overallInstructions: state.effectiveInstructions,
-			noteCount: notes.length,
-			notes
+			commentCount: comments.length,
+			comments
 		},
 		undefined,
 		2
@@ -281,8 +283,8 @@ function summarizeState(notes: readonly ReviewNote[]): Record<ReviewNoteStatus |
 	return summary;
 }
 
-function isSelected(note: ReviewNote, noteIds: readonly string[] | undefined): boolean {
-	return !noteIds || noteIds.length === 0 || noteIds.includes(note.id);
+function isSelected(note: ReviewNote, commentIds: readonly string[] | undefined): boolean {
+	return !commentIds || commentIds.length === 0 || commentIds.includes(note.id);
 }
 
 function isActionable(status: ReviewNoteStatus): boolean {
@@ -328,7 +330,7 @@ async function main(): Promise<void> {
 	}
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
-	console.error(`AI Review MCP ${serverVersion} running for ${pathToFileURL(options.workspace ?? process.cwd())}`);
+	console.error(`Request Changes MCP ${serverVersion} running for ${pathToFileURL(options.workspace ?? process.cwd())}`);
 }
 
 process.on("SIGINT", () => {

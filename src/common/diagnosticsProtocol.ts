@@ -54,7 +54,7 @@ export interface WebviewDiagnosticInput {
 }
 
 export const DiagnosticsRpc = {
-	report: new NotificationType<WebviewDiagnosticInput>("aireview.diagnostics.report")
+	report: new NotificationType<WebviewDiagnosticInput>("requestchanges.diagnostics.report")
 } as const;
 
 export function normalizeWebviewDiagnosticInput(value: unknown): WebviewDiagnosticInput | undefined {

@@ -11,7 +11,7 @@ describe("isRpcEnvelope", () => {
 	it.each([
 		null,
 		undefined,
-		"aireview.jsonrpc",
+		"requestchanges.jsonrpc",
 		{},
 		{ kind: rpcEnvelopeKind },
 		{ kind: "another-envelope", payload: {} }

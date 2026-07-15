@@ -3,20 +3,20 @@ import { AlertTriangle, CheckCircle2, ExternalLink, FolderOpen, RefreshCw, Setti
 import type { MessageConnection } from "vscode-jsonrpc/browser";
 import {
 	SettingsRpc,
-	type AiReviewSettingsState,
+	type RequestChangesSettingsState,
 	type McpClientId,
 	type McpIntegrationState,
 	type SettingsScope
 } from "../../common/settingsProtocol";
 
 export function SettingsApp({ connection }: { readonly connection: MessageConnection }) {
-	const [state, setState] = React.useState<AiReviewSettingsState>();
+	const [state, setState] = React.useState<RequestChangesSettingsState>();
 	const [userInstructions, setUserInstructions] = React.useState("");
 	const [workspaceInstructions, setWorkspaceInstructions] = React.useState("");
 	const [busy, setBusy] = React.useState<string>();
 	const [message, setMessage] = React.useState<string>();
 
-	const acceptState = React.useCallback((next: AiReviewSettingsState) => {
+	const acceptState = React.useCallback((next: RequestChangesSettingsState) => {
 		setState(next);
 		setUserInstructions(next.instructions.user);
 		setWorkspaceInstructions(next.instructions.workspace);
@@ -29,7 +29,7 @@ export function SettingsApp({ connection }: { readonly connection: MessageConnec
 			.catch((error) => setMessage(errorMessage(error)));
 	}, [acceptState, connection]);
 
-	async function run(key: string, operation: () => Promise<AiReviewSettingsState>): Promise<void> {
+	async function run(key: string, operation: () => Promise<RequestChangesSettingsState>): Promise<void> {
 		setBusy(key);
 		setMessage(undefined);
 		try {
@@ -99,7 +99,7 @@ export function SettingsApp({ connection }: { readonly connection: MessageConnec
 				<div>
 					<Settings2 aria-hidden="true" size={20} />
 					<div>
-						<h1>AI Review Settings</h1>
+						<h1>Request Changes Settings</h1>
 						<p>Defaults, local data, and coding-agent integrations</p>
 					</div>
 				</div>
@@ -116,13 +116,13 @@ export function SettingsApp({ connection }: { readonly connection: MessageConnec
 			</header>
 			{busy ? (
 				<div className="sr-only" role="status" aria-live="polite">
-					Updating AI Review settings.
+					Updating Request Changes settings.
 				</div>
 			) : undefined}
 
 			{!state && !message ? (
 				<div className="sr-only" role="status" aria-live="polite">
-					Loading AI Review settings.
+					Loading Request Changes settings.
 				</div>
 			) : undefined}
 			{message ? (
@@ -253,7 +253,7 @@ export function SettingsApp({ connection }: { readonly connection: MessageConnec
 			<section className="settings-section data-section" aria-labelledby="review-data-heading">
 				<header>
 					<h2 id="review-data-heading">Review data</h2>
-					<p>Annotations are private user data and are not written into the reviewed repository.</p>
+					<p>Review comments are private user data and are not written into the reviewed repository.</p>
 				</header>
 				<dl>
 					<dt>Data directory</dt>
@@ -321,7 +321,7 @@ function InstallationCell({ integration, scope, busy, onInstall, onRemove, onRev
 					{invalid ? "Configuration error" : "Detected externally"}
 				</span>
 				<span className="installation-state__note">
-					{invalid ? "Fix this file before installing." : "AI Review won’t modify this entry."}
+					{invalid ? "Fix this file before installing." : "Request Changes won’t modify this entry."}
 				</span>
 				<button
 					type="button"
@@ -360,25 +360,25 @@ const integrationUsage: Readonly<
 > = {
 	codex: {
 		steps: [
-			"Install AI Review from the Workspace column for this repository, or User for every repository.",
+			"Install Request Changes from the Workspace column for this repository, or User for every repository.",
 			"Restart Codex and open this repository.",
-			"Run /mcp and confirm that aireview is listed and enabled.",
+			"Run /mcp and confirm that requestchanges is listed and enabled.",
 			"Send this prompt:"
 		],
 		invocation:
-			"Use the aireview MCP server to read all open review comments, implement them, run relevant tests, and report each note as addressed or blocked."
+			"Use the requestchanges MCP server to read all open review comments, implement them, run relevant tests, and report each comment as addressed or blocked."
 	},
 	claude: {
 		steps: ["Start a new Claude Code session in the reviewed workspace, then run the MCP prompt:"],
-		invocation: "/mcp__aireview__fix_review"
+		invocation: "/mcp__requestchanges__address_review_comments"
 	},
 	copilotCli: {
 		steps: ["Start a new Copilot CLI session in the reviewed workspace, then ask:"],
-		invocation: "Use the aireview MCP server to fix the open review comments."
+		invocation: "Use the requestchanges MCP server to fix the open review comments."
 	},
 	copilotVscode: {
 		steps: ["Open Copilot Chat in Agent mode for this workspace, then ask:"],
-		invocation: "Fix the open review comments with #aireview"
+		invocation: "Fix the open review comments with #requestchanges"
 	}
 };
 

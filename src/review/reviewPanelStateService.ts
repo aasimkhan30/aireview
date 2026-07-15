@@ -122,7 +122,7 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 		const state = await this.reviewStore.getState();
 		const current = state.notes.find((note) => note.id === input.id);
 		if (!current) {
-			throw new Error("Review note not found");
+			throw new Error("Review comment not found");
 		}
 		const note: ReviewNote = {
 			...current,
@@ -177,7 +177,7 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 		try {
 			const preview = await this.previewBundle();
 			if (preview.noteCount === 0) {
-				throw new Error("Add at least one open review note before copying");
+				throw new Error("Add at least one open review comment before copying");
 			}
 			await vscode.env.clipboard.writeText(preview.markdown);
 			const message = "Review bundle copied to the clipboard.";

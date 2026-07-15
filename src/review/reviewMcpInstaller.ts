@@ -10,8 +10,8 @@ import type {
 	SettingsScope
 } from "../common/settingsProtocol";
 
-const managedBlockStart = "# BEGIN AI REVIEW MCP (managed by aaskhan.aireview)";
-const managedBlockEnd = "# END AI REVIEW MCP";
+const managedBlockStart = "# BEGIN REQUEST CHANGES MCP (managed by aaskhan.request-changes)";
+const managedBlockEnd = "# END REQUEST CHANGES MCP";
 
 export interface McpInstallerOptions {
 	readonly workspaceRoot: string;
@@ -24,7 +24,7 @@ export class ReviewMcpInstaller {
 	readonly serverFile: string;
 
 	constructor(private readonly options: McpInstallerOptions) {
-		this.serverFile = join(options.dataDirectory, "bin", "aireview-mcp.js");
+		this.serverFile = join(options.dataDirectory, "bin", "requestchanges-mcp.js");
 	}
 
 	async prepareServer(): Promise<void> {
@@ -51,7 +51,7 @@ export class ReviewMcpInstaller {
 				? "absent"
 				: content.includes(managedBlockStart)
 					? "managed"
-					: /^\s*\[mcp_servers\.aireview\]\s*$/mu.test(content)
+					: /^\s*\[mcp_servers\.requestchanges\]\s*$/mu.test(content)
 						? "external"
 						: "absent";
 			return { status, configFile: target.path };
@@ -61,7 +61,7 @@ export class ReviewMcpInstaller {
 		}
 		try {
 			const parsed = JSON.parse(content) as { mcpServers?: Record<string, unknown> };
-			const configured = parsed.mcpServers?.aireview as { args?: unknown } | undefined;
+			const configured = parsed.mcpServers?.requestchanges as { args?: unknown } | undefined;
 			status = !configured
 				? "absent"
 				: Array.isArray(configured.args) && configured.args.includes(this.serverFile)
@@ -79,10 +79,10 @@ export class ReviewMcpInstaller {
 		}
 		const existing = await this.getInstallation(client, scope);
 		if (existing.status === "external") {
-			throw new Error(`AI Review cannot replace the externally managed configuration in ${existing.configFile}`);
+			throw new Error(`Request Changes cannot replace the externally managed configuration in ${existing.configFile}`);
 		}
 		if (existing.status === "invalid") {
-			throw new Error(`Fix the invalid JSON configuration in ${existing.configFile} before installing AI Review`);
+			throw new Error(`Fix the invalid JSON configuration in ${existing.configFile} before installing Request Changes`);
 		}
 		await this.prepareServer();
 		const nodeCommand = this.options.nodeCommand ?? (await findExecutable("node")) ?? "node";
@@ -114,7 +114,7 @@ export class ReviewMcpInstaller {
 			return;
 		}
 		if (existing.status !== "managed") {
-			throw new Error(`AI Review will not remove the externally managed configuration in ${existing.configFile}`);
+			throw new Error(`Request Changes will not remove the externally managed configuration in ${existing.configFile}`);
 		}
 		const target = getConfigTarget(client, scope, this.options.workspaceRoot);
 		if (target.format === "toml") {
@@ -130,9 +130,9 @@ export class ReviewMcpInstaller {
 		}
 		const parsed = JSON.parse(content) as { mcpServers?: Record<string, unknown> };
 		const servers = parsed.mcpServers;
-		const configured = servers?.aireview as { args?: unknown } | undefined;
+		const configured = servers?.requestchanges as { args?: unknown } | undefined;
 		if (servers && configured && Array.isArray(configured.args) && configured.args.includes(this.serverFile)) {
-			delete servers.aireview;
+			delete servers.requestchanges;
 			await writeAtomic(target.path, `${JSON.stringify(parsed, undefined, 2)}\n`);
 		}
 	}
@@ -176,7 +176,7 @@ async function installToml(
 	const withoutManagedBlock = removeManagedTomlBlock(current).trimEnd();
 	const block = [
 		managedBlockStart,
-		"[mcp_servers.aireview]",
+		"[mcp_servers.requestchanges]",
 		`command = ${JSON.stringify(nodeCommand)}`,
 		`args = ${JSON.stringify([serverFile, "--data-dir", dataDirectory, "--client", client])}`,
 		managedBlockEnd
@@ -188,7 +188,7 @@ async function installToml(
 async function installJson(path: string, server: Record<string, unknown>, backupDirectory: string): Promise<void> {
 	const current = await readOptionalFile(path);
 	const parsed = current ? (JSON.parse(current) as { mcpServers?: Record<string, unknown> }) : {};
-	parsed.mcpServers = { ...(parsed.mcpServers ?? {}), aireview: server };
+	parsed.mcpServers = { ...(parsed.mcpServers ?? {}), requestchanges: server };
 	await backupIfPresent(path, backupDirectory);
 	await writeAtomic(path, `${JSON.stringify(parsed, undefined, 2)}\n`);
 }
@@ -233,7 +233,7 @@ async function backupIfPresent(path: string, backupDirectory: string): Promise<v
 
 async function writeAtomic(path: string, content: string): Promise<void> {
 	await mkdir(dirname(path), { recursive: true });
-	const temporary = `${path}.aireview-tmp-${process.pid}`;
+	const temporary = `${path}.requestchanges-tmp-${process.pid}`;
 	let mode = 0o600;
 	try {
 		mode = (await stat(path)).mode & 0o777;

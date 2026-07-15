@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import type {
-	AiReviewSettingsState,
+	RequestChangesSettingsState,
 	McpClientId,
 	McpIntegrationState,
 	SettingsScope
@@ -19,10 +19,10 @@ export const IReviewSettingsService = createServiceIdentifier<IReviewSettingsSer
 
 export interface IReviewSettingsService {
 	readonly _serviceBrand: undefined;
-	getState(): Promise<AiReviewSettingsState>;
-	setInstructions(scope: SettingsScope, value: string): Promise<AiReviewSettingsState>;
-	install(client: McpClientId, scope: SettingsScope): Promise<AiReviewSettingsState>;
-	uninstall(client: McpClientId, scope: SettingsScope): Promise<AiReviewSettingsState>;
+	getState(): Promise<RequestChangesSettingsState>;
+	setInstructions(scope: SettingsScope, value: string): Promise<RequestChangesSettingsState>;
+	install(client: McpClientId, scope: SettingsScope): Promise<RequestChangesSettingsState>;
+	uninstall(client: McpClientId, scope: SettingsScope): Promise<RequestChangesSettingsState>;
 	revealMcpConfig(client: McpClientId, scope: SettingsScope): Promise<void>;
 	revealData(): Promise<void>;
 }
@@ -49,12 +49,12 @@ export class ReviewSettingsService extends Disposable implements IReviewSettings
 			bundledServerFile: vscode.Uri.joinPath(
 				extensionContextService.context.extensionUri,
 				"out",
-				"aireview-mcp.js"
+				"requestchanges-mcp.js"
 			).fsPath
 		});
 		this._register(
 			vscode.workspace.onDidChangeConfiguration((event) => {
-				if (event.affectsConfiguration(`aireview.${instructionsSetting}`, this.workspaceUri)) {
+				if (event.affectsConfiguration(`requestchanges.${instructionsSetting}`, this.workspaceUri)) {
 					void this.syncEffectiveInstructions(true);
 				}
 			})
@@ -65,8 +65,8 @@ export class ReviewSettingsService extends Disposable implements IReviewSettings
 		void this.syncEffectiveInstructions();
 	}
 
-	async getState(): Promise<AiReviewSettingsState> {
-		const configuration = vscode.workspace.getConfiguration("aireview", this.workspaceUri);
+	async getState(): Promise<RequestChangesSettingsState> {
+		const configuration = vscode.workspace.getConfiguration("requestchanges", this.workspaceUri);
 		const inspected = configuration.inspect<string>(instructionsSetting);
 		const [location, ledgerState, integrations] = await Promise.all([
 			this.reviewStore.getLocation(),
@@ -89,8 +89,8 @@ export class ReviewSettingsService extends Disposable implements IReviewSettings
 		};
 	}
 
-	async setInstructions(scope: SettingsScope, value: string): Promise<AiReviewSettingsState> {
-		const configuration = vscode.workspace.getConfiguration("aireview", this.workspaceUri);
+	async setInstructions(scope: SettingsScope, value: string): Promise<RequestChangesSettingsState> {
+		const configuration = vscode.workspace.getConfiguration("requestchanges", this.workspaceUri);
 		await configuration.update(
 			instructionsSetting,
 			value.trim().slice(0, 20_000) || undefined,
@@ -100,7 +100,7 @@ export class ReviewSettingsService extends Disposable implements IReviewSettings
 		return this.getState();
 	}
 
-	async install(client: McpClientId, scope: SettingsScope): Promise<AiReviewSettingsState> {
+	async install(client: McpClientId, scope: SettingsScope): Promise<RequestChangesSettingsState> {
 		const operation = this.diagnostics.startOperation("reviewState", "mcp.install", () => ({ client, scope }));
 		try {
 			await this.installer.install(client, scope);
@@ -112,7 +112,7 @@ export class ReviewSettingsService extends Disposable implements IReviewSettings
 		}
 	}
 
-	async uninstall(client: McpClientId, scope: SettingsScope): Promise<AiReviewSettingsState> {
+	async uninstall(client: McpClientId, scope: SettingsScope): Promise<RequestChangesSettingsState> {
 		const installation = await this.installer.getInstallation(client, scope);
 		if (scope === "user" && installation.status === "managed") {
 			const action = "Remove user installation";
@@ -158,7 +158,7 @@ export class ReviewSettingsService extends Disposable implements IReviewSettings
 			installations: { workspace, user },
 			builtIn,
 			detail: builtIn
-				? "Provided directly by the AI Review extension; use #aireview in Agent mode."
+				? "Provided directly by the Request Changes extension; use #requestchanges in Agent mode."
 				: detected
 					? "Install for this workspace or for all projects."
 					: `${clientLabel(client)} command was not found on PATH; configuration can still be installed.`
@@ -166,7 +166,7 @@ export class ReviewSettingsService extends Disposable implements IReviewSettings
 	}
 
 	private async syncEffectiveInstructions(force = false): Promise<void> {
-		const configuration = vscode.workspace.getConfiguration("aireview", this.workspaceUri);
+		const configuration = vscode.workspace.getConfiguration("requestchanges", this.workspaceUri);
 		const inspected = configuration.inspect<string>(instructionsSetting);
 		if (!force && inspected?.globalValue === undefined && inspected?.workspaceValue === undefined) {
 			return;

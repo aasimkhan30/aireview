@@ -16,7 +16,7 @@ describe("ReviewStore", () => {
 	const stores: ReviewStore[] = [];
 
 	beforeEach(async () => {
-		temporaryDirectory = await mkdtemp(join(tmpdir(), "aireview-store-"));
+		temporaryDirectory = await mkdtemp(join(tmpdir(), "requestchanges-store-"));
 		workspaceRoot = join(temporaryDirectory, "workspace");
 		dataDirectory = join(temporaryDirectory, "data");
 		await mkdir(workspaceRoot);
@@ -45,7 +45,7 @@ describe("ReviewStore", () => {
 
 	it("migrates version two workspace state without losing note text", async () => {
 		const storage = new FakeMemento({
-			"aireview.reviewState": {
+			"requestchanges.reviewState": {
 				version: 2,
 				notes: [createNote("legacy")],
 				overallInstructions: "Keep the public API stable.",

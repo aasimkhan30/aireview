@@ -240,7 +240,7 @@ export function App({ connection, diagnostics }: AppProps) {
 				<div className="review-header__identity">
 					<MessageSquare aria-hidden="true" size={17} />
 					<div>
-						<h1>Review draft</h1>
+						<h1>Review comments</h1>
 						<div className="review-header__meta">
 							{state?.workspace.name ?? "Loading"}
 							{state?.workspace.branch ? ` · ${state.workspace.branch}` : ""}
@@ -288,7 +288,7 @@ export function App({ connection, diagnostics }: AppProps) {
 			</header>
 			{busy ? (
 				<div className="sr-only" role="status" aria-live="polite">
-					Updating AI Review.
+					Updating Request Changes.
 				</div>
 			) : undefined}
 
@@ -329,7 +329,7 @@ export function App({ connection, diagnostics }: AppProps) {
 						<span>
 							{resolvedCount
 								? `${resolvedCount} resolved ${resolvedCount === 1 ? "note is" : "notes are"} available below.`
-								: "Select code in the editor, then choose “AI Review: Add Note to Selection.”"}
+								: "Select code in the editor, then choose “Request Changes: Add Review Comment to Selection.”"}
 						</span>
 					</div>
 				) : (

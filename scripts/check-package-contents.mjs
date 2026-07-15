@@ -16,7 +16,7 @@ const requiredFiles = [
 	"media/reviewPanel.js",
 	"media/settings.css",
 	"media/settings.js",
-	"out/aireview-mcp.js",
+	"out/requestchanges-mcp.js",
 	"out/extension.js",
 	"package.json"
 ];

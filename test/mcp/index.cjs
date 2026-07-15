@@ -7,7 +7,7 @@ const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { StdioClientTransport } = require("@modelcontextprotocol/sdk/client/stdio.js");
 
 async function run() {
-	const temporaryDirectory = await mkdtemp(join(tmpdir(), "aireview-mcp-smoke-"));
+	const temporaryDirectory = await mkdtemp(join(tmpdir(), "requestchanges-mcp-smoke-"));
 	const workspace = join(temporaryDirectory, "workspace");
 	const dataDirectory = join(temporaryDirectory, "data");
 	await mkdir(workspace);
@@ -31,7 +31,7 @@ async function run() {
 	const transport = new StdioClientTransport({
 		command: process.execPath,
 		args: [
-			join(__dirname, "..", "..", "out", "aireview-mcp.js"),
+			join(__dirname, "..", "..", "out", "requestchanges-mcp.js"),
 			"--workspace",
 			workspace,
 			"--data-dir",
@@ -41,28 +41,28 @@ async function run() {
 		],
 		stderr: "pipe"
 	});
-	const client = new Client({ name: "aireview-smoke", version: "1.0.0" });
+	const client = new Client({ name: "requestchanges-smoke", version: "1.0.0" });
 	try {
 		await client.connect(transport);
 		const tools = await client.listTools();
 		assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
-			"aireview",
-			"claim_review_notes",
+			"requestchanges",
+			"claim_review_comments",
 			"get_review_status",
-			"report_notes_addressed",
-			"report_notes_blocked"
+			"report_comments_addressed",
+			"report_comments_blocked"
 		]);
-		const context = await client.callTool({ name: "aireview", arguments: {} });
+		const context = await client.callTool({ name: "requestchanges", arguments: {} });
 		assert.equal(context.isError, undefined);
-		assert.match(context.content[0].text, /"noteCount": 1/);
+		assert.match(context.content[0].text, /"commentCount": 1/);
 		assert.match(context.content[0].text, /Keep the public API stable/);
-		await client.callTool({ name: "claim_review_notes", arguments: {} });
+		await client.callTool({ name: "claim_review_comments", arguments: {} });
 		await client.callTool({
-			name: "report_notes_addressed",
+			name: "report_comments_addressed",
 			arguments: {
 				results: [
 					{
-						noteId: "note-1",
+						commentId: "note-1",
 						summary: "Kept the exported signature stable.",
 						changedFiles: ["src/index.ts"],
 						verification: "npm test"
@@ -72,11 +72,11 @@ async function run() {
 		});
 		const status = await client.callTool({ name: "get_review_status", arguments: {} });
 		assert.match(status.content[0].text, /"addressed": 1/);
-		const prompt = await client.getPrompt({ name: "fix_review", arguments: {} });
-		assert.match(prompt.messages[0].content.text, /Use the aireview tool/);
-		const resource = await client.readResource({ uri: "aireview://reviews/open" });
-		assert.match(resource.contents[0].text, /"noteCount": 0/);
-		console.log("AI Review MCP smoke test passed");
+		const prompt = await client.getPrompt({ name: "address_review_comments", arguments: {} });
+		assert.match(prompt.messages[0].content.text, /Use the requestchanges tool/);
+		const resource = await client.readResource({ uri: "requestchanges://comments/open" });
+		assert.match(resource.contents[0].text, /"commentCount": 0/);
+		console.log("Request Changes MCP smoke test passed");
 	} finally {
 		await client.close();
 		await rm(temporaryDirectory, { recursive: true, force: true });

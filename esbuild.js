@@ -71,7 +71,7 @@ async function main() {
 		bundle: true,
 		format: "cjs",
 		platform: "node",
-		outfile: "out/aireview-mcp.js",
+		outfile: "out/requestchanges-mcp.js",
 		define: {
 			"process.env.NODE_ENV": JSON.stringify(production ? "production" : "development")
 		},

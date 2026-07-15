@@ -10,7 +10,7 @@ describe("ReviewMcpInstaller", () => {
 	let installer: ReviewMcpInstaller;
 
 	beforeEach(async () => {
-		root = await mkdtemp(join(tmpdir(), "aireview-installer-"));
+		root = await mkdtemp(join(tmpdir(), "requestchanges-installer-"));
 		workspaceRoot = join(root, "workspace");
 		const bundledServerFile = join(root, "bundled-server.js");
 		await mkdir(workspaceRoot);
@@ -35,7 +35,7 @@ describe("ReviewMcpInstaller", () => {
 		await installer.install("codex", "workspace");
 		const installed = await readFile(configFile, "utf8");
 		expect(installed).toContain('model = "gpt-5"');
-		expect(installed).toContain("[mcp_servers.aireview]");
+		expect(installed).toContain("[mcp_servers.requestchanges]");
 		expect((await installer.getInstallation("codex", "workspace")).status).toBe("managed");
 
 		await installer.uninstall("codex", "workspace");
@@ -58,20 +58,20 @@ describe("ReviewMcpInstaller", () => {
 		};
 		expect(installed.project).toBe("kept");
 		expect(installed.mcpServers.existing.command).toBe("existing");
-		expect(installed.mcpServers.aireview.command).toBe(process.execPath);
+		expect(installed.mcpServers.requestchanges.command).toBe(process.execPath);
 
 		await installer.uninstall("copilotCli", "workspace");
 		const uninstalled = JSON.parse(await readFile(configFile, "utf8")) as {
 			mcpServers: Record<string, unknown>;
 		};
 		expect(uninstalled.mcpServers.existing).toBeDefined();
-		expect(uninstalled.mcpServers.aireview).toBeUndefined();
+		expect(uninstalled.mcpServers.requestchanges).toBeUndefined();
 	});
 
 	it("detects but never replaces or removes an external Codex configuration", async () => {
 		const configFile = join(workspaceRoot, ".codex", "config.toml");
 		await mkdir(join(workspaceRoot, ".codex"));
-		const external = '[mcp_servers.aireview]\ncommand = "custom-aireview"\n';
+		const external = '[mcp_servers.requestchanges]\ncommand = "custom-requestchanges"\n';
 		await writeFile(configFile, external, "utf8");
 
 		expect((await installer.getInstallation("codex", "workspace")).status).toBe("external");
@@ -82,7 +82,7 @@ describe("ReviewMcpInstaller", () => {
 
 	it("detects but never replaces or removes an external JSON configuration", async () => {
 		const configFile = join(workspaceRoot, ".mcp.json");
-		const external = `${JSON.stringify({ mcpServers: { aireview: { command: "custom-aireview" } } })}\n`;
+		const external = `${JSON.stringify({ mcpServers: { requestchanges: { command: "custom-requestchanges" } } })}\n`;
 		await writeFile(configFile, external, "utf8");
 
 		expect((await installer.getInstallation("claude", "workspace")).status).toBe("external");

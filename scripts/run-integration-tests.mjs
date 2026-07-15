@@ -9,7 +9,7 @@ const integrationDataDirectory = path.join(repositoryRoot, ".artifacts", "integr
 // VS Code-launched terminals inherit this flag, which would make the downloaded
 // Electron binary run as Node instead of starting the Extension Host.
 delete process.env.ELECTRON_RUN_AS_NODE;
-process.env.AIREVIEW_DATA_DIR = integrationDataDirectory;
+process.env.REQUEST_CHANGES_DATA_DIR = integrationDataDirectory;
 
 try {
 	await rm(integrationDataDirectory, { recursive: true, force: true });

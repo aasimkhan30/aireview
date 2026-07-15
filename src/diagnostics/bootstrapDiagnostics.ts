@@ -26,10 +26,10 @@ export interface CreateDiagnosticsRecorderOptions {
 
 export function readDiagnosticsLaunchConfig(env: NodeJS.ProcessEnv): DiagnosticConfig {
 	const warnings: string[] = [];
-	const level = readLevel(env.AIREVIEW_LOG_LEVEL, warnings);
-	const areas = readAreas(env.AIREVIEW_LOG_AREAS, warnings);
-	const artifactDirectory = env.AIREVIEW_LOG_DIRECTORY?.trim() || defaultArtifactDirectory;
-	const artifactFileName = readArtifactFileName(env.AIREVIEW_LOG_FILE, warnings);
+	const level = readLevel(env.REQUEST_CHANGES_LOG_LEVEL, warnings);
+	const areas = readAreas(env.REQUEST_CHANGES_LOG_AREAS, warnings);
+	const artifactDirectory = env.REQUEST_CHANGES_LOG_DIRECTORY?.trim() || defaultArtifactDirectory;
+	const artifactFileName = readArtifactFileName(env.REQUEST_CHANGES_LOG_FILE, warnings);
 	return {
 		level,
 		areas,
@@ -139,7 +139,7 @@ function readLevel(value: string | undefined, warnings: string[]): DiagnosticCon
 	if (normalized === "off" || (diagnosticLevels as readonly string[]).includes(normalized)) {
 		return normalized as DiagnosticConfiguredLevel;
 	}
-	warnings.push(`Unknown AIREVIEW_LOG_LEVEL '${value}'; using 'info'.`);
+	warnings.push(`Unknown REQUEST_CHANGES_LOG_LEVEL '${value}'; using 'info'.`);
 	return "info";
 }
 
@@ -157,7 +157,7 @@ function readAreas(value: string | undefined, warnings: string[]): ReadonlySet<D
 		if (area) {
 			areas.add(area);
 		} else {
-			warnings.push(`Unknown AIREVIEW_LOG_AREAS entry '${entry}'; ignoring it.`);
+			warnings.push(`Unknown REQUEST_CHANGES_LOG_AREAS entry '${entry}'; ignoring it.`);
 		}
 	}
 	return areas;
@@ -166,11 +166,11 @@ function readAreas(value: string | undefined, warnings: string[]): ReadonlySet<D
 function readArtifactFileName(value: string | undefined, warnings: string[]): string {
 	const fileName = value?.trim() || defaultArtifactFileName;
 	if (path.basename(fileName) !== fileName || fileName === "." || fileName === "..") {
-		warnings.push(`Invalid AIREVIEW_LOG_FILE '${fileName}'; using '${defaultArtifactFileName}'.`);
+		warnings.push(`Invalid REQUEST_CHANGES_LOG_FILE '${fileName}'; using '${defaultArtifactFileName}'.`);
 		return defaultArtifactFileName;
 	}
 	if (!fileName.toLowerCase().endsWith(".ndjson")) {
-		warnings.push(`AIREVIEW_LOG_FILE must end in '.ndjson'; using '${defaultArtifactFileName}'.`);
+		warnings.push(`REQUEST_CHANGES_LOG_FILE must end in '.ndjson'; using '${defaultArtifactFileName}'.`);
 		return defaultArtifactFileName;
 	}
 	return fileName;
@@ -190,7 +190,7 @@ function renderArtifactFileName(template: string, runId: string): string {
 
 function createRunId(): string {
 	const timestamp = new Date().toISOString().replace(/[-:]/gu, "").replace(".", "");
-	return `aireview-${timestamp}-${process.pid}-${randomBytes(3).toString("hex")}`;
+	return `requestchanges-${timestamp}-${process.pid}-${randomBytes(3).toString("hex")}`;
 }
 
 async function pruneArtifacts(directory: string, fileNameTemplate: string, keepExisting: number): Promise<void> {
@@ -217,7 +217,7 @@ function artifactFilePattern(template: string): RegExp {
 		.map((part) => {
 			switch (part) {
 				case "{runId}":
-					return "aireview-.*";
+					return "requestchanges-.*";
 				case "{timestamp}":
 					return "[0-9TZ]+";
 				case "{pid}":

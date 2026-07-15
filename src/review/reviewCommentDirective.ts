@@ -19,14 +19,14 @@ export interface ParsedReviewComment {
 	readonly hadDirective: boolean;
 }
 
-const directiveStart = /^\s*#aireview:/iu;
-const directive = /^\s*#aireview:([^\s]+)(?:[ \t]+|\r?\n|$)/iu;
+const directiveStart = /^\s*#requestchanges:/iu;
+const directive = /^\s*#requestchanges:([^\s]+)(?:[ \t]+|\r?\n|$)/iu;
 
 export function parseReviewComment(value: string, defaultKind: ReviewNoteKind = "change"): ParsedReviewComment {
 	const match = directive.exec(value);
 	if (!match) {
 		if (directiveStart.test(value)) {
-			throw new Error(directiveHelp("Invalid AI Review type directive"));
+			throw new Error(directiveHelp("Invalid Request Changes type directive"));
 		}
 		return { body: value.trim(), kind: defaultKind, hadDirective: false };
 	}
@@ -35,7 +35,7 @@ export function parseReviewComment(value: string, defaultKind: ReviewNoteKind = 
 		(candidate) => candidate.keyword.toLowerCase() === match[1].toLowerCase()
 	);
 	if (!selected) {
-		throw new Error(directiveHelp(`Unknown AI Review type “${match[1]}”`));
+		throw new Error(directiveHelp(`Unknown Request Changes type “${match[1]}”`));
 	}
 
 	return {
@@ -46,5 +46,5 @@ export function parseReviewComment(value: string, defaultKind: ReviewNoteKind = 
 }
 
 function directiveHelp(message: string): string {
-	return `${message}. Use #aireview:change, #aireview:question, #aireview:explain, or #aireview:addTest.`;
+	return `${message}. Use #requestchanges:change, #requestchanges:question, #requestchanges:explain, or #requestchanges:addTest.`;
 }

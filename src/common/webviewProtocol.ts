@@ -1,4 +1,4 @@
-export const rpcEnvelopeKind = "aireview.jsonrpc";
+export const rpcEnvelopeKind = "requestchanges.jsonrpc";
 
 export interface RpcEnvelope {
 	readonly kind: typeof rpcEnvelopeKind;

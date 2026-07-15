@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import * as vscode from "vscode";
-import { AiReviewCommand } from "../common/commands";
+import { RequestChangesCommand } from "../common/commands";
 import type { ReviewNote, ReviewPanelStateEnvelope } from "../common/reviewProtocol";
 import { IDiagnosticsService } from "../diagnostics/diagnosticsService";
 import { ICommandRegistrationService } from "../services/commandRegistrationService";
@@ -22,7 +22,7 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 	declare readonly _serviceBrand: undefined;
 
 	private readonly controller = this._register(
-		vscode.comments.createCommentController("aireview.comments", "AI Review")
+		vscode.comments.createCommentController("requestchanges.comments", "Request Changes")
 	);
 	private readonly decoration = this._register(
 		vscode.window.createTextEditorDecorationType({
@@ -46,8 +46,8 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 	) {
 		super();
 		this.controller.options = {
-			prompt: "Add an AI Review note · type # for note types",
-			placeHolder: "#aireview:change Describe the exact change you want"
+			prompt: "Add a review comment · type # for comment types",
+			placeHolder: "#requestchanges:change Describe the exact change you want"
 		};
 		this._register(
 			vscode.languages.registerCompletionItemProvider(
@@ -69,26 +69,26 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 			}
 		};
 
-		this.commandRegistrationService.registerCommand(AiReviewCommand.AddReviewNote, () => this.startAnnotation());
-		this.commandRegistrationService.registerCommand(AiReviewCommand.CreateComment, (value) =>
+		this.commandRegistrationService.registerCommand(RequestChangesCommand.AddReviewNote, () => this.startAnnotation());
+		this.commandRegistrationService.registerCommand(RequestChangesCommand.CreateComment, (value) =>
 			this.createComment(value)
 		);
-		this.commandRegistrationService.registerCommand(AiReviewCommand.EditComment, (value) =>
+		this.commandRegistrationService.registerCommand(RequestChangesCommand.EditComment, (value) =>
 			this.editComment(value)
 		);
-		this.commandRegistrationService.registerCommand(AiReviewCommand.SaveComment, (value) =>
+		this.commandRegistrationService.registerCommand(RequestChangesCommand.SaveComment, (value) =>
 			this.saveComment(value)
 		);
-		this.commandRegistrationService.registerCommand(AiReviewCommand.CancelCommentEdit, (value) =>
+		this.commandRegistrationService.registerCommand(RequestChangesCommand.CancelCommentEdit, (value) =>
 			this.cancelCommentEdit(value)
 		);
-		this.commandRegistrationService.registerCommand(AiReviewCommand.DeleteComment, (value) =>
+		this.commandRegistrationService.registerCommand(RequestChangesCommand.DeleteComment, (value) =>
 			this.deleteComment(value)
 		);
-		this.commandRegistrationService.registerCommand(AiReviewCommand.ResolveComment, (value) =>
+		this.commandRegistrationService.registerCommand(RequestChangesCommand.ResolveComment, (value) =>
 			this.setThreadResolved(value, true)
 		);
-		this.commandRegistrationService.registerCommand(AiReviewCommand.ReopenComment, (value) =>
+		this.commandRegistrationService.registerCommand(RequestChangesCommand.ReopenComment, (value) =>
 			this.setThreadResolved(value, false)
 		);
 
@@ -134,12 +134,12 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 	async startAnnotation(): Promise<void> {
 		const editor = vscode.window.activeTextEditor;
 		if (!editor || editor.selection.isEmpty) {
-			void vscode.window.showInformationMessage("Select code in an editor before adding an AI Review note.");
+			void vscode.window.showInformationMessage("Select code in an editor before adding a review comment.");
 			return;
 		}
 		const thread = this.controller.createCommentThread(editor.document.uri, editor.selection, []);
-		thread.contextValue = "aireview.draft";
-		thread.label = "New AI Review note";
+		thread.contextValue = "requestchanges.draft";
+		thread.label = "New review comment";
 		thread.canReply = true;
 		thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
 		this.diagnostics.info("reviewState", "annotation.started", () => ({
@@ -150,14 +150,14 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 	async revealNote(id: string): Promise<void> {
 		const note = this.latestState?.value.notes.find((candidate) => candidate.id === id);
 		if (!note?.anchor) {
-			void vscode.window.showWarningMessage("This review note is no longer attached to code.");
+			void vscode.window.showWarningMessage("This review comment is no longer attached to code.");
 			return;
 		}
 		const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(note.anchor.uri));
 		const resolved = resolveReviewAnchor(document.getText(), note.anchor);
 		if (resolved.state === "orphaned") {
 			await this.stateService.updateNoteAnchor(note.id, resolved.anchor, "orphaned");
-			void vscode.window.showWarningMessage("This review note is no longer attached to code.");
+			void vscode.window.showWarningMessage("This review comment is no longer attached to code.");
 			return;
 		}
 		if (!rangesEqual(resolved.anchor.range, note.anchor.range)) {
@@ -182,7 +182,7 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 			return;
 		}
 		if (!parsed.body) {
-			void vscode.window.showWarningMessage("Review note body cannot be empty.");
+			void vscode.window.showWarningMessage("Review comment cannot be empty.");
 			return;
 		}
 		const thread = value.thread;
@@ -223,7 +223,7 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 			return;
 		}
 		if (!parsed.body) {
-			void vscode.window.showWarningMessage("Review note body cannot be empty.");
+			void vscode.window.showWarningMessage("Review comment cannot be empty.");
 			return;
 		}
 		await this.stateService.updateNote({ id: value.noteId, body: parsed.body, kind: parsed.kind });
@@ -304,7 +304,7 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 		}
 		thread.range = toVsCodeRange(note.anchor.range);
 		thread.label = `${formatCommentStatus(note.status)} · ${formatCommentKind(note.kind)} · ${note.anchor.filePath}`;
-		thread.contextValue = note.status === "resolved" ? "aireview.resolved" : "aireview.unresolved";
+		thread.contextValue = note.status === "resolved" ? "requestchanges.resolved" : "requestchanges.unresolved";
 		thread.state =
 			note.status === "resolved" ? vscode.CommentThreadState.Resolved : vscode.CommentThreadState.Unresolved;
 		thread.canReply = false;
@@ -385,7 +385,7 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 		const prefix = document.lineAt(position.line).text.slice(0, position.character);
 		const leadingWhitespace = prefix.match(/^\s*/u)?.[0].length ?? 0;
 		const token = prefix.slice(leadingWhitespace);
-		const canonicalPrefix = "#aireview:";
+		const canonicalPrefix = "#requestchanges:";
 		const normalized = token.toLowerCase();
 		const isDirectivePrefix = canonicalPrefix.startsWith(normalized);
 		const isKeywordPrefix =
@@ -396,7 +396,7 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 
 		const range = new vscode.Range(0, leadingWhitespace, position.line, position.character);
 		return reviewCommentDirectives.map((directive, index) => {
-			const label = `#aireview:${directive.keyword}`;
+			const label = `#requestchanges:${directive.keyword}`;
 			const item = new vscode.CompletionItem(label, vscode.CompletionItemKind.EnumMember);
 			item.detail = directive.detail;
 			item.insertText = `${label} `;
@@ -417,7 +417,7 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 	private expectEditCommentDocument(): void {
 		this.clearPendingEditCommentDocument();
 		// The public Comments API does not expose the input URI for an edited comment. Correlate the
-		// next unscoped comment document with the AI Review Edit action that caused it to open.
+		// next unscoped comment document with the Request Changes Edit action that caused it to open.
 		this.pendingEditCommentDocumentTimer = setTimeout(() => {
 			this.pendingEditCommentDocumentTimer = undefined;
 		}, 2_000);
@@ -458,8 +458,8 @@ class ReviewComment implements vscode.Comment {
 	body: string | vscode.MarkdownString;
 	savedBody: string | vscode.MarkdownString;
 	mode = vscode.CommentMode.Preview;
-	author = { name: "AI Review" };
-	contextValue = "aireview.note";
+	author = { name: "Request Changes" };
+	contextValue = "requestchanges.note";
 	kind: ReviewNote["kind"];
 	label: string;
 	timestamp: Date;

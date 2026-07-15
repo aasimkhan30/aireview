@@ -8,7 +8,7 @@ let runtime: ExtensionRuntime | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
 	const config = readDiagnosticsLaunchConfig(process.env);
-	const outputChannel = vscode.window.createOutputChannel("AI Review", { log: true });
+	const outputChannel = vscode.window.createOutputChannel("Request Changes", { log: true });
 	context.subscriptions.push(outputChannel);
 
 	recorder = await createDiagnosticsRecorder({

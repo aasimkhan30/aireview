@@ -12,7 +12,7 @@ import {
 } from "./reviewLedger";
 import { isReviewNote } from "./reviewValidation";
 
-const legacyReviewStateStorageKey = "aireview.reviewState";
+const legacyReviewStateStorageKey = "requestchanges.reviewState";
 
 export type PersistedReviewStateV3 = ReviewLedgerState;
 

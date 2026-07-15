@@ -36,7 +36,7 @@ export class ReviewLedger {
 		readonly location: ReviewLedgerLocation
 	) {}
 
-	static async open(workspaceRoot: string, dataDirectory = getDefaultAiReviewDataDirectory()): Promise<ReviewLedger> {
+	static async open(workspaceRoot: string, dataDirectory = getDefaultRequestChangesDataDirectory()): Promise<ReviewLedger> {
 		const canonicalRoot = await canonicalizeWorkspaceRoot(workspaceRoot);
 		const location = getReviewLedgerLocation(canonicalRoot, dataDirectory);
 		await mkdir(location.workspaceDirectory, { recursive: true, mode: 0o700 });
@@ -49,7 +49,7 @@ export class ReviewLedger {
 			if (state) {
 				return state;
 			}
-			throw new Error(`AI Review state is invalid: ${this.location.stateFile}`);
+			throw new Error(`Request Changes state is invalid: ${this.location.stateFile}`);
 		} catch (error) {
 			if (!isFileNotFound(error)) {
 				throw error;
@@ -66,7 +66,7 @@ export class ReviewLedger {
 		return this.withLock(async () => {
 			const current = await this.readExistingState();
 			if (!current) {
-				throw new Error(`AI Review state became unavailable: ${this.location.stateFile}`);
+				throw new Error(`Request Changes state became unavailable: ${this.location.stateFile}`);
 			}
 			const proposed = mutation(current);
 			const next: ReviewLedgerState = {
@@ -144,22 +144,22 @@ export class ReviewLedger {
 				await delay(25);
 			}
 		}
-		throw new Error(`Timed out waiting for AI Review state lock: ${lockFile}`);
+		throw new Error(`Timed out waiting for Request Changes state lock: ${lockFile}`);
 	}
 }
 
-export function getDefaultAiReviewDataDirectory(environment: NodeJS.ProcessEnv = process.env): string {
-	if (environment.AIREVIEW_DATA_DIR) {
-		return resolve(environment.AIREVIEW_DATA_DIR);
+export function getDefaultRequestChangesDataDirectory(environment: NodeJS.ProcessEnv = process.env): string {
+	if (environment.REQUEST_CHANGES_DATA_DIR) {
+		return resolve(environment.REQUEST_CHANGES_DATA_DIR);
 	}
 	const home = homedir();
 	switch (platform()) {
 		case "darwin":
-			return join(home, "Library", "Application Support", "AIReview");
+			return join(home, "Library", "Application Support", "Request Changes");
 		case "win32":
-			return join(environment.LOCALAPPDATA ?? environment.APPDATA ?? home, "AIReview");
+			return join(environment.LOCALAPPDATA ?? environment.APPDATA ?? home, "Request Changes");
 		default:
-			return join(environment.XDG_STATE_HOME ?? join(home, ".local", "state"), "aireview");
+			return join(environment.XDG_STATE_HOME ?? join(home, ".local", "state"), "request-changes");
 	}
 }
 

@@ -1,7 +1,7 @@
 THIRD-PARTY SOFTWARE LICENSES AND NOTICES
 
 This file contains license information for third-party software distributed
-with AI Review Router. It does not grant a license to AI Review Router itself,
+with Request Changes. It does not grant a license to Request Changes itself,
 which remains marked UNLICENSED in package.json.
 
 ===============================================================================

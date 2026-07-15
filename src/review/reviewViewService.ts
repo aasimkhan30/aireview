@@ -1,4 +1,4 @@
-import { AiReviewCommand, type CommandWithoutArguments } from "../common/commands";
+import { RequestChangesCommand, type CommandWithoutArguments } from "../common/commands";
 import { IDiagnosticsService } from "../diagnostics/diagnosticsService";
 import { ICommandRegistrationService } from "../services/commandRegistrationService";
 import { IExtensionContextService } from "../services/extensionContextService";
@@ -9,8 +9,8 @@ import { IReviewCommentService } from "./reviewCommentService";
 import { IReviewPanelStateService } from "./reviewPanelStateService";
 import { ReviewWebviewController } from "./reviewWebviewController";
 
-export const openReviewPanelCommandId = AiReviewCommand.OpenReviewPanel;
-export const aiReviewViewId = "aireview.reviewView";
+export const openReviewPanelCommandId = RequestChangesCommand.OpenReviewPanel;
+export const requestChangesViewId = "requestchanges.reviewView";
 
 export const IReviewViewService = createServiceIdentifier<IReviewViewService>("reviewViewService");
 
@@ -35,11 +35,11 @@ export class ReviewViewService extends Disposable implements IReviewViewService 
 		super();
 		this.host = this._register(
 			new WebviewViewHost({
-				viewId: aiReviewViewId,
+				viewId: requestChangesViewId,
 				extensionUri: extensionContextService.context.extensionUri,
 				diagnostics,
 				content: {
-					title: "AI Review",
+					title: "Review Comments",
 					scriptPath: ["media", "reviewPanel.js"],
 					stylePaths: [["media", "reviewPanel.css"]],
 					localResourceRootPaths: [["media"]]
@@ -66,8 +66,8 @@ export class ReviewViewService extends Disposable implements IReviewViewService 
 			this.stateService.captureActiveTextEditor();
 			if (!this.host.show(false)) {
 				await this.executeFirstAvailableCommand(
-					AiReviewCommand.ReviewViewFocus,
-					AiReviewCommand.ReviewViewOpen
+					RequestChangesCommand.ReviewViewFocus,
+					RequestChangesCommand.ReviewViewOpen
 				);
 			}
 			await this.stateService.refresh();
@@ -82,7 +82,7 @@ export class ReviewViewService extends Disposable implements IReviewViewService 
 		const commands = await this.commandRegistrationService.getCommands(true);
 		const commandId = commandIds.find((id) => commands.includes(id));
 		if (!commandId) {
-			throw new Error(`AI Review view command not found. Tried: ${commandIds.join(", ")}`);
+			throw new Error(`Request Changes view command not found. Tried: ${commandIds.join(", ")}`);
 		}
 		await this.commandRegistrationService.executeCommand(commandId);
 	}

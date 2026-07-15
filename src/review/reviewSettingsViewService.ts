@@ -1,4 +1,4 @@
-import { AiReviewCommand } from "../common/commands";
+import { RequestChangesCommand } from "../common/commands";
 import { IDiagnosticsService } from "../diagnostics/diagnosticsService";
 import { ICommandRegistrationService } from "../services/commandRegistrationService";
 import { IExtensionContextService } from "../services/extensionContextService";
@@ -29,12 +29,12 @@ export class ReviewSettingsViewService extends Disposable implements IReviewSett
 		super();
 		this.host = this._register(
 			new WebviewPanelHost({
-				viewType: "aireview.settings",
-				title: "AI Review Settings",
+				viewType: "requestchanges.settings",
+				title: "Request Changes Settings",
 				extensionUri: extensionContextService.context.extensionUri,
 				diagnostics,
 				content: {
-					title: "AI Review Settings",
+					title: "Request Changes Settings",
 					scriptPath: ["media", "settings.js"],
 					stylePaths: [["media", "settings.css"]],
 					localResourceRootPaths: [["media"]]
@@ -43,7 +43,7 @@ export class ReviewSettingsViewService extends Disposable implements IReviewSett
 					new ReviewSettingsWebviewController(connection, settingsService, diagnostics)
 			})
 		);
-		commandRegistrationService.registerCommand(AiReviewCommand.OpenSettings, () => this.open());
+		commandRegistrationService.registerCommand(RequestChangesCommand.OpenSettings, () => this.open());
 	}
 
 	open(): void {

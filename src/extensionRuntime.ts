@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { DiagnosticsServiceAdapter, IDiagnosticsService } from "./diagnostics/diagnosticsService";
 import type { DiagnosticsRecorder } from "./diagnostics/diagnostics";
 import { IReviewCommentService, ReviewCommentService } from "./review/reviewCommentService";
-import { getDefaultAiReviewDataDirectory } from "./review/reviewLedger";
+import { getDefaultRequestChangesDataDirectory } from "./review/reviewLedger";
 import { IReviewMcpService, ReviewMcpService } from "./review/reviewMcpService";
 import { IReviewSettingsService, ReviewSettingsService } from "./review/reviewSettingsService";
 import { IReviewSettingsViewService, ReviewSettingsViewService } from "./review/reviewSettingsViewService";
@@ -29,7 +29,7 @@ export async function createExtensionRuntime(options: CreateExtensionRuntimeOpti
 		new ExtensionContextService(
 			options.context,
 			vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [],
-			getDefaultAiReviewDataDirectory()
+			getDefaultRequestChangesDataDirectory()
 		)
 	);
 	builder.define(IDiagnosticsService, new DiagnosticsServiceAdapter(options.diagnosticsRecorder));

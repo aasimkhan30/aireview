@@ -1,31 +1,31 @@
-# AI Review Router
+# Request Changes
 
-AI Review Router is a VS Code extension and local MCP server for collecting code-change review notes and handing them to Codex, Claude Code, GitHub Copilot CLI, or GitHub Copilot in VS Code.
+Request Changes is a VS Code extension for reviewing agent-written code like a pull request. Leave inline review comments, then send the requested changes back to Codex, Claude Code, GitHub Copilot CLI, or GitHub Copilot in VS Code through its local MCP server.
 
-Select code in the editor and run **AI Review: Add Note to Selection** (or use the comment gutter) to create an inline review note. Notes stay synchronized between native VS Code comment threads and the AI Review sidebar, where they can be grouped, edited, resolved, previewed as a structured implementation bundle, and handed off to Codex or Copilot.
+Select code in the editor and run **Request Changes: Add Review Comment to Selection** (or use the comment gutter) to create an inline review comment. Comments stay synchronized between native VS Code comment threads and the **Review Comments** view, where they can be grouped, edited, resolved, previewed as a structured change request, and handed back to an agent.
 
-Agents read annotations through the bundled MCP server, edit code with their normal coding tools, and report notes as **Addressed** or **Blocked**. Addressed notes remain visible until a person accepts and resolves them.
+Agents read review comments through the bundled MCP server, edit code with their normal coding tools, and report comments as **Addressed** or **Blocked**. Addressed comments remain visible until a person accepts and resolves them.
 
-Type `#` in a new or edited AI Review comment to select a note type from completion suggestions: `#aireview:change`, `#aireview:question`, `#aireview:explain`, or `#aireview:addTest`. The directive is removed when the note is saved; new comments without one default to **Change**, while edited comments keep their existing type. Types can also be changed from the Review Notes webview.
+Type `#` in a new or edited review comment to select a comment type from completion suggestions: `#requestchanges:change`, `#requestchanges:question`, `#requestchanges:explain`, or `#requestchanges:addTest`. The directive is removed when the comment is saved; new comments without one default to **Change**, while edited comments keep their existing type. Types can also be changed from the Review Comments view.
 
 ## Agent integrations
 
-Open **AI Review: Open Settings** or use the gear in the Review Notes view. The settings panel:
+Open **Request Changes: Open Settings** or use the gear in the Review Comments view. The settings panel:
 
 - installs or removes the MCP server for Codex, Claude Code, and GitHub Copilot CLI at Workspace or User scope;
 - shows the MCP server that the extension registers automatically for GitHub Copilot in VS Code;
 - configures user-level default instructions and an optional workspace override; and
 - shows the private review ledger and bundled server locations.
 
-The integration grid tracks Workspace and User scope independently. AI Review only removes configuration entries it manages; externally configured entries are identified and can be opened for manual editing without being overwritten.
+The integration grid tracks Workspace and User scope independently. Request Changes only removes configuration entries it manages; externally configured entries are identified and can be opened for manual editing without being overwritten.
 
-Explicitly invoke AI Review when you want an agent to address comments:
+Explicitly invoke Request Changes when you want an agent to address your review comments:
 
-- GitHub Copilot in VS Code: `Fix the open comments with #aireview`
-- Claude Code: run `/mcp__aireview__fix_review` or ask it to use `aireview`
-- Codex or GitHub Copilot CLI: `Use aireview to fix the open review comments`
+- GitHub Copilot in VS Code: `Fix the open comments with #requestchanges`
+- Claude Code: run `/mcp__requestchanges__address_review_comments` or ask it to use `requestchanges`
+- Codex or GitHub Copilot CLI: `Use requestchanges to fix the open review comments`
 
-The MCP server exposes one read tool named `aireview`, status tools for claiming and reporting notes, resources for open and individual annotations, and a `fix_review` prompt. Its server instructions tell clients not to use AI Review unless the user explicitly asks for it.
+The MCP server exposes one read tool named `requestchanges`, status tools for claiming and reporting comments, resources for open and individual comments, and an `address_review_comments` prompt. Its server instructions tell clients not to use Request Changes unless the user explicitly asks for it.
 
 ## Architecture
 
@@ -33,13 +33,13 @@ The extension and MCP process share a revisioned, atomically written review ledg
 
 Review data is private user data, not repository content. Each canonical workspace root gets a hashed directory under:
 
-- macOS: `~/Library/Application Support/AIReview`
-- Windows: `%LOCALAPPDATA%/AIReview`
-- Linux: `$XDG_STATE_HOME/aireview` or `~/.local/state/aireview`
+- macOS: `~/Library/Application Support/Request Changes`
+- Windows: `%LOCALAPPDATA%/Request Changes`
+- Linux: `$XDG_STATE_HOME/request-changes` or `~/.local/state/request-changes`
 
-Set `AIREVIEW_DATA_DIR` to override the location.
+Set `REQUEST_CHANGES_DATA_DIR` to override the location.
 
-Review notes use versioned anchors containing their URI, range, selected-text hash, and bounded surrounding context. Anchors are reconciled when documents open or change; moved notes are reattached and deleted or ambiguous selections are retained as orphaned notes. Previous workspace-state versions migrate into the shared ledger without discarding note text or instructions.
+Review comments use versioned anchors containing their URI, range, selected-text hash, and bounded surrounding context. Anchors are reconciled when documents open or change; moved comments are reattached, while deleted or ambiguous selections are retained as orphaned comments.
 
 Reusable webview infrastructure is split between a surface-neutral `WebviewSession`, the sidebar `WebviewViewHost`, and a `WebviewPanelHost` used by Settings. HTML, CSP, resource, transport, visibility, and disposal behavior remain shared.
 
@@ -74,22 +74,22 @@ npm run compile
 
 ## Diagnostics
 
-The extension creates the `AI Review` VS Code log channel before initializing dependency injection. Selected events are sent both to that channel and to one NDJSON artifact for each activation. Artifact failures do not prevent activation, and individual sink failures are isolated.
+The extension creates the `Request Changes` VS Code log channel before initializing dependency injection. Selected events are sent both to that channel and to one NDJSON artifact for each activation. Artifact failures do not prevent activation, and individual sink failures are isolated.
 
 Launch-time environment variables control capture:
 
 ```jsonc
 "env": {
-  "AIREVIEW_LOG_LEVEL": "debug",
-  "AIREVIEW_LOG_AREAS": "lifecycle,diagnostics,reviewStore,reviewState,git,commands,webview",
-  "AIREVIEW_LOG_DIRECTORY": ".artifacts",
-  "AIREVIEW_LOG_FILE": "{runId}.ndjson"
+  "REQUEST_CHANGES_LOG_LEVEL": "debug",
+  "REQUEST_CHANGES_LOG_AREAS": "lifecycle,diagnostics,reviewStore,reviewState,git,commands,webview",
+  "REQUEST_CHANGES_LOG_DIRECTORY": ".artifacts",
+  "REQUEST_CHANGES_LOG_FILE": "{runId}.ndjson"
 }
 ```
 
-- `AIREVIEW_LOG_LEVEL` accepts `trace`, `debug`, `info`, `warn`, `error`, or `off` and defaults to `info`.
-- `AIREVIEW_LOG_AREAS` is a comma-separated allowlist and defaults to every known area.
-- `AIREVIEW_LOG_DIRECTORY` may be absolute or relative to the extension directory and defaults to `.artifacts`.
-- `AIREVIEW_LOG_FILE` must be a basename ending in `.ndjson`. It supports `{runId}`, `{timestamp}`, and `{pid}` tokens. A run ID is appended when the template omits `{runId}` so activations never overwrite one another.
+- `REQUEST_CHANGES_LOG_LEVEL` accepts `trace`, `debug`, `info`, `warn`, `error`, or `off` and defaults to `info`.
+- `REQUEST_CHANGES_LOG_AREAS` is a comma-separated allowlist and defaults to every known area.
+- `REQUEST_CHANGES_LOG_DIRECTORY` may be absolute or relative to the extension directory and defaults to `.artifacts`.
+- `REQUEST_CHANGES_LOG_FILE` must be a basename ending in `.ndjson`. It supports `{runId}`, `{timestamp}`, and `{pid}` tokens. A run ID is appended when the template omits `{runId}` so activations never overwrite one another.
 
 The newest 20 artifacts for a filename pattern are retained. Payloads are lazy, bounded, and sanitized before either sink receives an event; review bodies, content-like fields, credentials, environment data, and absolute user paths are not recorded.

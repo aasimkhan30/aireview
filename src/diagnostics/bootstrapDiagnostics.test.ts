@@ -26,10 +26,10 @@ describe("readDiagnosticsLaunchConfig", () => {
 
 	it("normalizes filters and rejects unsafe filenames", () => {
 		const config = readDiagnosticsLaunchConfig({
-			AIREVIEW_LOG_LEVEL: "DEBUG",
-			AIREVIEW_LOG_AREAS: "git, reviewState, unknown",
-			AIREVIEW_LOG_DIRECTORY: "logs",
-			AIREVIEW_LOG_FILE: "../escape.ndjson"
+			REQUEST_CHANGES_LOG_LEVEL: "DEBUG",
+			REQUEST_CHANGES_LOG_AREAS: "git, reviewState, unknown",
+			REQUEST_CHANGES_LOG_DIRECTORY: "logs",
+			REQUEST_CHANGES_LOG_FILE: "../escape.ndjson"
 		});
 
 		expect(config.level).toBe("debug");
@@ -48,13 +48,13 @@ describe("createDiagnosticsRecorder", () => {
 	});
 
 	it("writes configured NDJSON files with the same sequenced events shown in the channel", async () => {
-		const extensionPath = await mkdtemp(path.join(tmpdir(), "aireview-diagnostics-"));
+		const extensionPath = await mkdtemp(path.join(tmpdir(), "requestchanges-diagnostics-"));
 		temporaryDirectories.push(extensionPath);
 		const channel = new FakeLogOutputChannel();
 		const config = readDiagnosticsLaunchConfig({
-			AIREVIEW_LOG_LEVEL: "debug",
-			AIREVIEW_LOG_DIRECTORY: "diagnostic-output",
-			AIREVIEW_LOG_FILE: "custom-{runId}.ndjson"
+			REQUEST_CHANGES_LOG_LEVEL: "debug",
+			REQUEST_CHANGES_LOG_DIRECTORY: "diagnostic-output",
+			REQUEST_CHANGES_LOG_FILE: "custom-{runId}.ndjson"
 		});
 		const recorder = await createDiagnosticsRecorder({
 			config,
@@ -69,7 +69,7 @@ describe("createDiagnosticsRecorder", () => {
 		const directory = path.join(extensionPath, "diagnostic-output");
 		const files = await readdir(directory);
 		expect(files).toHaveLength(1);
-		expect(files[0]).toMatch(/^custom-aireview-.*\.ndjson$/u);
+		expect(files[0]).toMatch(/^custom-requestchanges-.*\.ndjson$/u);
 		const events = (await readFile(path.join(directory, files[0]), "utf8"))
 			.trim()
 			.split("\n")
@@ -80,11 +80,11 @@ describe("createDiagnosticsRecorder", () => {
 	});
 
 	it("retains only the newest twenty artifacts for a custom filename pattern", async () => {
-		const extensionPath = await mkdtemp(path.join(tmpdir(), "aireview-retention-"));
+		const extensionPath = await mkdtemp(path.join(tmpdir(), "requestchanges-retention-"));
 		temporaryDirectories.push(extensionPath);
 		const config = readDiagnosticsLaunchConfig({
-			AIREVIEW_LOG_DIRECTORY: "diagnostic-output",
-			AIREVIEW_LOG_FILE: "review-{timestamp}-{runId}.ndjson"
+			REQUEST_CHANGES_LOG_DIRECTORY: "diagnostic-output",
+			REQUEST_CHANGES_LOG_FILE: "review-{timestamp}-{runId}.ndjson"
 		});
 
 		for (let index = 0; index < 22; index += 1) {
@@ -100,7 +100,7 @@ describe("createDiagnosticsRecorder", () => {
 
 		const files = await readdir(path.join(extensionPath, "diagnostic-output"));
 		expect(files).toHaveLength(20);
-		expect(files.every((file) => /^review-[0-9TZ]+-aireview-.*\.ndjson$/u.test(file))).toBe(true);
+		expect(files.every((file) => /^review-[0-9TZ]+-requestchanges-.*\.ndjson$/u.test(file))).toBe(true);
 	});
 });
 
