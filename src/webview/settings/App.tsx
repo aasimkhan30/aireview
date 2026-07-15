@@ -214,6 +214,7 @@ export function SettingsApp({ connection }: { readonly connection: MessageConnec
 										) : undefined}
 									</div>
 									<p>{integration.detail}</p>
+									<IntegrationUsageHint client={integration.id} />
 								</th>
 								{(["workspace", "user"] as const).map((scope) => (
 									<td className="integration-scope" data-label={scopeLabel(scope)} key={scope}>
@@ -243,6 +244,7 @@ export function SettingsApp({ connection }: { readonly connection: MessageConnec
 								<span className="status status--installed">Available automatically</span>
 							</div>
 							<p>{builtInIntegration.detail}</p>
+							<IntegrationUsageHint client={builtInIntegration.id} />
 						</div>
 					</article>
 				) : undefined}
@@ -351,6 +353,48 @@ function InstallationCell({ integration, scope, busy, onInstall, onRemove, onRev
 
 function scopeLabel(scope: SettingsScope): string {
 	return scope === "workspace" ? "Workspace" : "User";
+}
+
+const integrationUsage: Readonly<
+	Record<McpClientId, { readonly steps: readonly string[]; readonly invocation: string }>
+> = {
+	codex: {
+		steps: [
+			"Install AI Review from the Workspace column for this repository, or User for every repository.",
+			"Restart Codex and open this repository.",
+			"Run /mcp and confirm that aireview is listed and enabled.",
+			"Send this prompt:"
+		],
+		invocation:
+			"Use the aireview MCP server to read all open review comments, implement them, run relevant tests, and report each note as addressed or blocked."
+	},
+	claude: {
+		steps: ["Start a new Claude Code session in the reviewed workspace, then run the MCP prompt:"],
+		invocation: "/mcp__aireview__fix_review"
+	},
+	copilotCli: {
+		steps: ["Start a new Copilot CLI session in the reviewed workspace, then ask:"],
+		invocation: "Use the aireview MCP server to fix the open review comments."
+	},
+	copilotVscode: {
+		steps: ["Open Copilot Chat in Agent mode for this workspace, then ask:"],
+		invocation: "Fix the open review comments with #aireview"
+	}
+};
+
+function IntegrationUsageHint({ client }: { readonly client: McpClientId }) {
+	const usage = integrationUsage[client];
+	return (
+		<details className="integration-usage">
+			<summary>How to use</summary>
+			<ol>
+				{usage.steps.map((step) => (
+					<li key={step}>{step}</li>
+				))}
+			</ol>
+			<code>{usage.invocation}</code>
+		</details>
+	);
 }
 
 function errorMessage(error: unknown): string {

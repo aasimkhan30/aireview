@@ -4,6 +4,7 @@
 
 body {
 	margin: 0;
+	padding: 0;
 	min-width: 240px;
 	color: var(--foreground);
 	background: var(--ai-shell-background);
@@ -33,7 +34,7 @@ pre {
 	flex-direction: column;
 	gap: 10px;
 	min-height: 100vh;
-	padding: 10px;
+	padding: 10px 6px;
 }
 
 .review-header {
@@ -122,7 +123,74 @@ pre {
 }
 
 .review-notes {
+	flex: 1 1 auto;
 	gap: 12px;
+}
+
+.resolved-notes {
+	margin-top: auto;
+	padding-top: 6px;
+	border-top: 1px solid var(--ai-separator);
+}
+
+.resolved-notes__toolbar,
+.resolved-notes__confirmation,
+.resolved-notes__confirmation > div {
+	display: flex;
+	align-items: center;
+}
+
+.resolved-notes__toolbar {
+	flex-wrap: wrap;
+	gap: 2px;
+}
+
+.resolved-notes__toggle {
+	justify-content: flex-start;
+	flex: 1 1 150px;
+	padding-right: 2px;
+	padding-left: 2px;
+	color: var(--muted-foreground);
+}
+
+.resolved-notes__toggle > span:not(.badge) {
+	color: var(--foreground);
+	font-weight: 600;
+}
+
+.resolved-notes__toggle .badge {
+	margin-left: auto;
+}
+
+.resolved-notes__chevron--expanded {
+	transform: rotate(90deg);
+}
+
+.resolved-notes__clear {
+	flex: 0 0 auto;
+}
+
+.resolved-notes__confirmation {
+	justify-content: space-between;
+	gap: 8px;
+	margin-top: 6px;
+	padding: 6px;
+	border: 1px solid var(--vscode-inputValidation-warningBorder, var(--border));
+	border-radius: var(--ai-control-radius);
+	background: var(--vscode-inputValidation-warningBackground, var(--background));
+	font-size: 11px;
+}
+
+.resolved-notes__confirmation > div {
+	flex: 0 0 auto;
+	gap: 2px;
+}
+
+.resolved-notes__content {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	margin-top: 6px;
 }
 
 .file-group {
@@ -324,18 +392,25 @@ select:focus-visible {
 	align-items: center;
 	justify-content: center;
 	flex-direction: column;
-	gap: 4px;
+	flex: 1 1 auto;
+	gap: 5px;
 	min-height: 110px;
 	padding: 16px;
-	border: 1px dashed var(--border);
-	border-radius: var(--ai-control-radius);
 	color: var(--muted-foreground);
-	background: var(--background);
 	text-align: center;
 }
 
 .empty-state strong {
 	color: var(--foreground);
+}
+
+.empty-state__icon {
+	margin-bottom: 3px;
+	color: var(--muted-foreground);
+}
+
+.empty-state__icon--success {
+	color: var(--ai-success);
 }
 
 .button {

@@ -235,6 +235,48 @@ button:focus-visible {
 	font-size: 12px;
 }
 
+.integration-usage {
+	margin-top: 8px;
+	font-size: 11px;
+	font-weight: 400;
+}
+
+.integration-usage summary {
+	width: fit-content;
+	color: var(--vscode-textLink-foreground);
+	cursor: pointer;
+	font-weight: 600;
+}
+
+.integration-usage summary:hover {
+	color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
+}
+
+.integration-usage ol {
+	margin-top: 7px;
+	margin-bottom: 0;
+	padding-left: 18px;
+	line-height: 1.4;
+}
+
+.integration-usage li + li {
+	margin-top: 4px;
+}
+
+.integration-usage code {
+	display: block;
+	margin-top: 5px;
+	padding: 6px 7px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	color: var(--foreground);
+	background: var(--vscode-textCodeBlock-background);
+	font-family: var(--vscode-editor-font-family);
+	line-height: 1.4;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
 .status {
 	gap: 4px;
 	padding: 1px 6px;

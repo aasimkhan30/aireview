@@ -1,5 +1,19 @@
 import * as React from "react";
-import { Check, Copy, Eye, FileText, MessageSquare, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import {
+	Check,
+	ChevronRight,
+	CircleCheckBig,
+	Copy,
+	Eye,
+	FileText,
+	MessageSquare,
+	MessageSquarePlus,
+	Pencil,
+	Plus,
+	RefreshCw,
+	Trash2,
+	X
+} from "lucide-react";
 import type { MessageConnection } from "vscode-jsonrpc/browser";
 import type {
 	ReviewBundlePreview,
@@ -9,6 +23,7 @@ import type {
 } from "../../common/reviewProtocol";
 import { ReviewRpc } from "../../common/reviewProtocol";
 import { shouldAcceptStateEnvelope } from "../../common/webviewProtocol";
+import { usePersistedWebviewState } from "../usePersistedWebviewState";
 import type { WebviewDiagnostics } from "../webviewDiagnostics";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
@@ -40,6 +55,8 @@ export function App({ connection, diagnostics }: AppProps) {
 	const [preview, setPreview] = React.useState<ReviewBundlePreview>();
 	const [busy, setBusy] = React.useState<string>();
 	const [message, setMessage] = React.useState<string>();
+	const [confirmClearResolved, setConfirmClearResolved] = React.useState(false);
+	const [showResolved, setShowResolved] = usePersistedWebviewState((value) => value === true);
 	const previewRef = React.useRef<HTMLElement>(null);
 	const previewButtonRef = React.useRef<HTMLButtonElement>(null);
 
@@ -79,7 +96,15 @@ export function App({ connection, diagnostics }: AppProps) {
 	}, [preview]);
 
 	const state = remoteState.status === "ready" ? remoteState.envelope.value : undefined;
-	const groupedNotes = React.useMemo(() => groupNotes(state?.notes ?? []), [state?.notes]);
+	const activeGroupedNotes = React.useMemo(
+		() => groupNotes((state?.notes ?? []).filter((note) => note.status !== "resolved")),
+		[state?.notes]
+	);
+	const resolvedGroupedNotes = React.useMemo(
+		() => groupNotes((state?.notes ?? []).filter((note) => note.status === "resolved")),
+		[state?.notes]
+	);
+	const resolvedCount = resolvedGroupedNotes.reduce((count, [, notes]) => count + notes.length, 0);
 	const actionableCount = state?.notes.filter((note) => isActionableStatus(note.status)).length ?? 0;
 
 	async function runOperation<T>(
@@ -140,6 +165,7 @@ export function App({ connection, diagnostics }: AppProps) {
 	}
 
 	async function toggleResolved(note: ReviewNote): Promise<void> {
+		const resolving = note.status !== "resolved";
 		await runOperation(
 			"note.update",
 			() =>
@@ -147,7 +173,42 @@ export function App({ connection, diagnostics }: AppProps) {
 					id: note.id,
 					status: note.status === "resolved" ? "draft" : "resolved"
 				}),
-			receiveState
+			(result) => {
+				receiveState(result);
+				setMessage(
+					resolving
+						? "Note resolved and moved to Resolved notes."
+						: "Note reopened and moved to active notes."
+				);
+			}
+		);
+	}
+
+	async function clearResolvedNotes(): Promise<void> {
+		const resolvedIds = state?.notes.filter((note) => note.status === "resolved").map((note) => note.id) ?? [];
+		if (resolvedIds.length === 0) {
+			return;
+		}
+		await runOperation(
+			"note.delete",
+			async () => {
+				let result: ReviewPanelStateEnvelope | undefined;
+				for (const id of resolvedIds) {
+					result = await connection.sendRequest(ReviewRpc.deleteNote, { id });
+				}
+				if (!result) {
+					throw new Error("No resolved notes were available to clear.");
+				}
+				return result;
+			},
+			(result) => {
+				receiveState(result);
+				setConfirmClearResolved(false);
+				setShowResolved(false);
+				setMessage(
+					`${resolvedIds.length} resolved ${resolvedIds.length === 1 ? "note" : "notes"} permanently deleted.`
+				);
+			}
 		);
 	}
 
@@ -252,179 +313,35 @@ export function App({ connection, diagnostics }: AppProps) {
 				Add note from editor selection
 			</Button>
 
-			<section className="review-notes" aria-label="Review notes">
-				{groupedNotes.length === 0 ? (
+			<section className="review-notes" aria-label="Active review notes">
+				{activeGroupedNotes.length === 0 ? (
 					<div className="empty-state">
-						<strong>No review notes yet</strong>
-						<span>Select code in the editor, then choose “AI Review: Add Note to Selection.”</span>
+						{resolvedCount ? (
+							<CircleCheckBig
+								className="empty-state__icon empty-state__icon--success"
+								aria-hidden="true"
+								size={28}
+							/>
+						) : (
+							<MessageSquarePlus className="empty-state__icon" aria-hidden="true" size={28} />
+						)}
+						<strong>{resolvedCount ? "No active review notes" : "No review notes yet"}</strong>
+						<span>
+							{resolvedCount
+								? `${resolvedCount} resolved ${resolvedCount === 1 ? "note is" : "notes are"} available below.`
+								: "Select code in the editor, then choose “AI Review: Add Note to Selection.”"}
+						</span>
 					</div>
 				) : (
-					groupedNotes.map(([filePath, notes]) => (
-						<section
-							className="file-group"
-							aria-label={`${filePath}, ${notes.length} notes`}
-							key={filePath}
-						>
-							<header className="file-group__header">
-								<FileText aria-hidden="true" size={14} />
-								<span title={filePath}>{filePath}</span>
-								<Badge variant="muted">{notes.length}</Badge>
-							</header>
-							<div className="file-group__notes">
-								{notes.map((note) => (
-									<article
-										className={`note-card note-card--${note.status}`}
-										aria-label={`${formatKind(note.kind)} note, ${formatStatus(note.status)}, ${formatNoteLocation(note)}`}
-										key={note.id}
-									>
-										{editing?.id === note.id ? (
-											<div className="note-editor">
-												<label className="sr-only" htmlFor={`note-kind-${note.id}`}>
-													Note type
-												</label>
-												<select
-													id={`note-kind-${note.id}`}
-													value={editing.kind}
-													onChange={(event) =>
-														setEditing({
-															...editing,
-															kind: event.target.value as ReviewNoteKind
-														})
-													}
-												>
-													<option value="change">Change</option>
-													<option value="question">Question</option>
-													<option value="explain">Explain</option>
-													<option value="test">Add test</option>
-												</select>
-												<label className="sr-only" htmlFor={`note-body-${note.id}`}>
-													Review note
-												</label>
-												<Textarea
-													id={`note-body-${note.id}`}
-													value={editing.body}
-													onChange={(event) =>
-														setEditing({ ...editing, body: event.target.value })
-													}
-													onKeyDown={(event) => {
-														if (event.key === "Escape") {
-															event.preventDefault();
-															setEditing(undefined);
-														} else if (
-															event.key === "Enter" &&
-															(event.metaKey || event.ctrlKey)
-														) {
-															event.preventDefault();
-															void saveNote();
-														}
-													}}
-													aria-describedby={`note-shortcuts-${note.id}`}
-													aria-keyshortcuts="Control+Enter Meta+Enter Escape"
-													autoFocus
-													rows={4}
-												/>
-												<span className="sr-only" id={`note-shortcuts-${note.id}`}>
-													Press Control or Command plus Enter to save. Press Escape to cancel.
-												</span>
-												<div className="note-editor__actions">
-													<Button
-														variant="ghost"
-														size="sm"
-														onClick={() => setEditing(undefined)}
-													>
-														<X aria-hidden="true" size={13} /> Cancel
-													</Button>
-													<Button
-														size="sm"
-														onClick={() => void saveNote()}
-														disabled={!editing.body.trim()}
-													>
-														<Check aria-hidden="true" size={13} /> Save
-													</Button>
-												</div>
-											</div>
-										) : (
-											<>
-												<div className="note-card__meta">
-													<span>{formatNoteLocation(note)}</span>
-													<div className="note-card__badges">
-														<Badge variant="muted">{formatStatus(note.status)}</Badge>
-														<Badge
-															variant={
-																note.anchorState === "orphaned" ? "muted" : undefined
-															}
-														>
-															{formatKind(note.kind)}
-														</Badge>
-													</div>
-												</div>
-												<p>{note.body}</p>
-												{note.resolution ? (
-													<div className="note-resolution">
-														<strong>{formatStatus(note.status)}</strong>
-														{note.resolution.summary ?? note.resolution.blockedReason}
-														{note.resolution.verification ? (
-															<span>Verified: {note.resolution.verification}</span>
-														) : undefined}
-													</div>
-												) : undefined}
-												<div className="note-card__actions">
-													<Button
-														variant="ghost"
-														size="sm"
-														onClick={() => void revealNote(note.id)}
-														disabled={!note.anchor || note.anchorState === "orphaned"}
-														aria-label={`Reveal ${noteSummary(note)} in editor`}
-													>
-														<Eye aria-hidden="true" size={13} /> Reveal
-													</Button>
-													<Button
-														variant="ghost"
-														size="icon"
-														aria-label={`Edit ${noteSummary(note)}`}
-														title="Edit note"
-														onClick={() =>
-															setEditing({
-																id: note.id,
-																body: note.body,
-																kind: note.kind
-															})
-														}
-													>
-														<Pencil aria-hidden="true" size={13} />
-													</Button>
-													<Button
-														variant="ghost"
-														size="icon"
-														aria-label={
-															note.status === "resolved"
-																? `Reopen ${noteSummary(note)}`
-																: `Resolve ${noteSummary(note)}`
-														}
-														title={
-															note.status === "resolved" ? "Reopen note" : "Resolve note"
-														}
-														onClick={() => void toggleResolved(note)}
-													>
-														<Check aria-hidden="true" size={13} />
-													</Button>
-													<Button
-														variant="ghost"
-														size="icon"
-														aria-label={`Delete ${noteSummary(note)}`}
-														title="Delete note"
-														onClick={() => void deleteNote(note.id)}
-													>
-														<Trash2 aria-hidden="true" size={13} />
-													</Button>
-												</div>
-											</>
-										)}
-									</article>
-								))}
-							</div>
-						</section>
-					))
+					<ReviewNoteGroups
+						groups={activeGroupedNotes}
+						editing={editing}
+						setEditing={setEditing}
+						onSave={() => void saveNote()}
+						onReveal={(id) => void revealNote(id)}
+						onToggleResolved={(note) => void toggleResolved(note)}
+						onDelete={(id) => void deleteNote(id)}
+					/>
 				)}
 			</section>
 
@@ -465,8 +382,233 @@ export function App({ connection, diagnostics }: AppProps) {
 					</pre>
 				</section>
 			) : undefined}
+
+			{resolvedCount ? (
+				<section className="resolved-notes" aria-label="Resolved review notes">
+					<div className="resolved-notes__toolbar">
+						<Button
+							className="resolved-notes__toggle"
+							variant="ghost"
+							size="sm"
+							aria-expanded={showResolved}
+							aria-controls="resolved-review-notes"
+							onClick={() => setShowResolved((visible) => !visible)}
+						>
+							<ChevronRight
+								className={showResolved ? "resolved-notes__chevron--expanded" : undefined}
+								aria-hidden="true"
+								size={14}
+							/>
+							<span>{showResolved ? "Hide resolved" : "Show resolved"}</span>
+							<Badge variant="muted">{resolvedCount}</Badge>
+						</Button>
+						<Button
+							className="resolved-notes__clear"
+							variant="ghost"
+							size="sm"
+							aria-label={`Clear ${resolvedCount} resolved ${resolvedCount === 1 ? "note" : "notes"}`}
+							onClick={() => setConfirmClearResolved(true)}
+							disabled={Boolean(busy)}
+						>
+							<Trash2 aria-hidden="true" size={13} /> Clear resolved
+						</Button>
+					</div>
+					{confirmClearResolved ? (
+						<div className="resolved-notes__confirmation" role="alert">
+							<span>
+								Permanently delete {resolvedCount} resolved {resolvedCount === 1 ? "note" : "notes"}?
+							</span>
+							<div>
+								<Button variant="ghost" size="sm" onClick={() => setConfirmClearResolved(false)}>
+									Cancel
+								</Button>
+								<Button
+									variant="destructive"
+									size="sm"
+									onClick={() => void clearResolvedNotes()}
+									disabled={Boolean(busy)}
+								>
+									Delete {resolvedCount}
+								</Button>
+							</div>
+						</div>
+					) : undefined}
+					{showResolved ? (
+						<div className="resolved-notes__content" id="resolved-review-notes">
+							<ReviewNoteGroups
+								groups={resolvedGroupedNotes}
+								editing={editing}
+								setEditing={setEditing}
+								onSave={() => void saveNote()}
+								onReveal={(id) => void revealNote(id)}
+								onToggleResolved={(note) => void toggleResolved(note)}
+								onDelete={(id) => void deleteNote(id)}
+							/>
+						</div>
+					) : undefined}
+				</section>
+			) : undefined}
 		</main>
 	);
+}
+
+interface ReviewNoteGroupsProps {
+	readonly groups: readonly [string, ReviewNote[]][];
+	readonly editing: EditingNote | undefined;
+	readonly setEditing: React.Dispatch<React.SetStateAction<EditingNote | undefined>>;
+	readonly onSave: () => void;
+	readonly onReveal: (id: string) => void;
+	readonly onToggleResolved: (note: ReviewNote) => void;
+	readonly onDelete: (id: string) => void;
+}
+
+function ReviewNoteGroups({
+	groups,
+	editing,
+	setEditing,
+	onSave,
+	onReveal,
+	onToggleResolved,
+	onDelete
+}: ReviewNoteGroupsProps) {
+	return groups.map(([filePath, notes]) => (
+		<section className="file-group" aria-label={`${filePath}, ${notes.length} notes`} key={filePath}>
+			<header className="file-group__header">
+				<FileText aria-hidden="true" size={14} />
+				<span title={filePath}>{filePath}</span>
+				<Badge variant="muted">{notes.length}</Badge>
+			</header>
+			<div className="file-group__notes">
+				{notes.map((note) => (
+					<article
+						className={`note-card note-card--${note.status}`}
+						aria-label={`${formatKind(note.kind)} note, ${formatStatus(note.status)}, ${formatNoteLocation(note)}`}
+						key={note.id}
+					>
+						{editing?.id === note.id ? (
+							<div className="note-editor">
+								<label className="sr-only" htmlFor={`note-kind-${note.id}`}>
+									Note type
+								</label>
+								<select
+									id={`note-kind-${note.id}`}
+									value={editing.kind}
+									onChange={(event) =>
+										setEditing({
+											...editing,
+											kind: event.target.value as ReviewNoteKind
+										})
+									}
+								>
+									<option value="change">Change</option>
+									<option value="question">Question</option>
+									<option value="explain">Explain</option>
+									<option value="test">Add test</option>
+								</select>
+								<label className="sr-only" htmlFor={`note-body-${note.id}`}>
+									Review note
+								</label>
+								<Textarea
+									id={`note-body-${note.id}`}
+									value={editing.body}
+									onChange={(event) => setEditing({ ...editing, body: event.target.value })}
+									onKeyDown={(event) => {
+										if (event.key === "Escape") {
+											event.preventDefault();
+											setEditing(undefined);
+										} else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+											event.preventDefault();
+											onSave();
+										}
+									}}
+									aria-describedby={`note-shortcuts-${note.id}`}
+									aria-keyshortcuts="Control+Enter Meta+Enter Escape"
+									autoFocus
+									rows={4}
+								/>
+								<span className="sr-only" id={`note-shortcuts-${note.id}`}>
+									Press Control or Command plus Enter to save. Press Escape to cancel.
+								</span>
+								<div className="note-editor__actions">
+									<Button variant="ghost" size="sm" onClick={() => setEditing(undefined)}>
+										<X aria-hidden="true" size={13} /> Cancel
+									</Button>
+									<Button size="sm" onClick={onSave} disabled={!editing.body.trim()}>
+										<Check aria-hidden="true" size={13} /> Save
+									</Button>
+								</div>
+							</div>
+						) : (
+							<>
+								<div className="note-card__meta">
+									<span>{formatNoteLocation(note)}</span>
+									<div className="note-card__badges">
+										<Badge variant="muted">{formatStatus(note.status)}</Badge>
+										<Badge variant={note.anchorState === "orphaned" ? "muted" : undefined}>
+											{formatKind(note.kind)}
+										</Badge>
+									</div>
+								</div>
+								<p>{note.body}</p>
+								{note.resolution ? (
+									<div className="note-resolution">
+										<strong>{formatStatus(note.status)}</strong>
+										{note.resolution.summary ?? note.resolution.blockedReason}
+										{note.resolution.verification ? (
+											<span>Verified: {note.resolution.verification}</span>
+										) : undefined}
+									</div>
+								) : undefined}
+								<div className="note-card__actions">
+									<Button
+										variant="ghost"
+										size="icon"
+										onClick={() => onReveal(note.id)}
+										disabled={!note.anchor || note.anchorState === "orphaned"}
+										aria-label={`Reveal ${noteSummary(note)} in editor`}
+										title="Reveal note in editor"
+									>
+										<Eye aria-hidden="true" size={13} />
+									</Button>
+									<Button
+										variant="ghost"
+										size="icon"
+										aria-label={`Edit ${noteSummary(note)}`}
+										title="Edit note"
+										onClick={() => setEditing({ id: note.id, body: note.body, kind: note.kind })}
+									>
+										<Pencil aria-hidden="true" size={13} />
+									</Button>
+									<Button
+										variant="ghost"
+										size="sm"
+										aria-label={
+											note.status === "resolved"
+												? `Reopen ${noteSummary(note)}`
+												: `Resolve ${noteSummary(note)}`
+										}
+										title={note.status === "resolved" ? "Reopen note" : "Resolve note"}
+										onClick={() => onToggleResolved(note)}
+									>
+										{note.status === "resolved" ? "Reopen" : "Resolve"}
+									</Button>
+									<Button
+										variant="ghost"
+										size="icon"
+										aria-label={`Delete ${noteSummary(note)}`}
+										title="Delete note"
+										onClick={() => onDelete(note.id)}
+									>
+										<Trash2 aria-hidden="true" size={13} />
+									</Button>
+								</div>
+							</>
+						)}
+					</article>
+				))}
+			</div>
+		</section>
+	));
 }
 
 function reduceRemoteReviewState(state: RemoteReviewState, action: RemoteReviewAction): RemoteReviewState {
