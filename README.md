@@ -6,6 +6,8 @@ Select code in the editor and run **AI Review: Add Note to Selection** (or use t
 
 Agents read annotations through the bundled MCP server, edit code with their normal coding tools, and report notes as **Addressed** or **Blocked**. Addressed notes remain visible until a person accepts and resolves them.
 
+Type `#` in a new or edited AI Review comment to select a note type from completion suggestions: `#aireview:change`, `#aireview:question`, `#aireview:explain`, or `#aireview:addTest`. The directive is removed when the note is saved; new comments without one default to **Change**, while edited comments keep their existing type. Types can also be changed from the Review Notes webview.
+
 ## Agent integrations
 
 Open **AI Review: Open Settings** or use the gear in the Review Notes view. The settings panel:

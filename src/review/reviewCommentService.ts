@@ -7,6 +7,7 @@ import { ICommandRegistrationService } from "../services/commandRegistrationServ
 import { createServiceIdentifier } from "../util/di";
 import { Disposable } from "../util/vs/base/common/lifecycle";
 import { createReviewAnchor, rangesEqual, resolveReviewAnchor } from "./reviewAnchors";
+import { parseReviewComment, reviewCommentDirectives } from "./reviewCommentDirective";
 import { IReviewPanelStateService, toReviewRange, toVsCodeRange } from "./reviewPanelStateService";
 
 export const IReviewCommentService = createServiceIdentifier<IReviewCommentService>("reviewCommentService");
@@ -34,6 +35,8 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 	private readonly threadsByNoteId = new Map<string, vscode.CommentThread>();
 	private readonly noteIdsByThread = new Map<vscode.CommentThread, string>();
 	private readonly reconciliationTimers = new Map<string, NodeJS.Timeout>();
+	private readonly editCommentDocumentUris = new Set<string>();
+	private pendingEditCommentDocumentTimer: NodeJS.Timeout | undefined;
 	private latestState: ReviewPanelStateEnvelope | undefined;
 
 	constructor(
@@ -43,9 +46,19 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 	) {
 		super();
 		this.controller.options = {
-			prompt: "Add an AI Review note",
-			placeHolder: "Describe the exact change you want"
+			prompt: "Add an AI Review note · type # for note types",
+			placeHolder: "#aireview:change Describe the exact change you want"
 		};
+		this._register(
+			vscode.languages.registerCompletionItemProvider(
+				{ scheme: "comment", language: "markdown" },
+				{
+					provideCompletionItems: (document, position) => this.provideDirectiveCompletions(document, position)
+				},
+				"#",
+				":"
+			)
+		);
 		this.controller.commentingRangeProvider = {
 			provideCommentingRanges: (document) => {
 				if (document.uri.scheme !== "file" && document.uri.scheme !== "untitled") {
@@ -89,9 +102,15 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 		);
 		this._register(
 			vscode.workspace.onDidOpenTextDocument((document) => {
+				this.claimPendingEditCommentDocument(document);
 				if (this.latestState?.value.notes.some((note) => note.anchor?.uri === document.uri.toString())) {
 					this.scheduleReconciliation(document);
 				}
+			})
+		);
+		this._register(
+			vscode.workspace.onDidCloseTextDocument((document) => {
+				this.editCommentDocumentUris.delete(document.uri.toString());
 			})
 		);
 		this._register(vscode.window.onDidChangeVisibleTextEditors(() => this.updateDecorations()));
@@ -101,6 +120,8 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 					clearTimeout(timer);
 				}
 				this.reconciliationTimers.clear();
+				this.clearPendingEditCommentDocument();
+				this.editCommentDocumentUris.clear();
 			}
 		});
 
@@ -156,6 +177,14 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 		if (!isCommentReply(value) || value.text.trim().length === 0) {
 			return;
 		}
+		const parsed = this.parseSubmittedComment(value.text, "change");
+		if (!parsed) {
+			return;
+		}
+		if (!parsed.body) {
+			void vscode.window.showWarningMessage("Review note body cannot be empty.");
+			return;
+		}
 		const thread = value.thread;
 		const document = await vscode.workspace.openTextDocument(thread.uri);
 		const range = thread.range ?? new vscode.Range(0, 0, 0, 0);
@@ -166,7 +195,7 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 			vscode.workspace.asRelativePath(document.uri, false),
 			toReviewRange(range)
 		);
-		const state = await this.stateService.addNote({ id, body: value.text.trim(), anchor });
+		const state = await this.stateService.addNote({ id, body: parsed.body, kind: parsed.kind, anchor });
 		this.bindThread(id, thread);
 		const note = state.value.notes.find((candidate) => candidate.id === id);
 		if (note) {
@@ -180,6 +209,7 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 			return;
 		}
 		value.savedBody = value.body;
+		this.expectEditCommentDocument();
 		value.mode = vscode.CommentMode.Editing;
 		value.parent.comments = [...value.parent.comments];
 	}
@@ -188,14 +218,19 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 		if (!(value instanceof ReviewComment)) {
 			return;
 		}
-		const body = commentBody(value.body).trim();
-		if (!body) {
+		const parsed = this.parseSubmittedComment(commentBody(value.body), value.kind);
+		if (!parsed) {
+			return;
+		}
+		if (!parsed.body) {
 			void vscode.window.showWarningMessage("Review note body cannot be empty.");
 			return;
 		}
-		await this.stateService.updateNote({ id: value.noteId, body });
-		value.savedBody = body;
-		value.body = body;
+		await this.stateService.updateNote({ id: value.noteId, body: parsed.body, kind: parsed.kind });
+		value.savedBody = parsed.body;
+		value.body = parsed.body;
+		value.kind = parsed.kind;
+		value.label = formatCommentKind(parsed.kind);
 		value.mode = vscode.CommentMode.Preview;
 		value.parent.comments = [...value.parent.comments];
 	}
@@ -268,7 +303,7 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 			this.bindThread(note.id, thread);
 		}
 		thread.range = toVsCodeRange(note.anchor.range);
-		thread.label = `${formatCommentStatus(note.status)} · ${note.kind} · ${note.anchor.filePath}`;
+		thread.label = `${formatCommentStatus(note.status)} · ${formatCommentKind(note.kind)} · ${note.anchor.filePath}`;
 		thread.contextValue = note.status === "resolved" ? "aireview.resolved" : "aireview.unresolved";
 		thread.state =
 			note.status === "resolved" ? vscode.CommentThreadState.Resolved : vscode.CommentThreadState.Unresolved;
@@ -339,6 +374,83 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 			editor.setDecorations(this.decoration, ranges);
 		}
 	}
+
+	private provideDirectiveCompletions(
+		document: vscode.TextDocument,
+		position: vscode.Position
+	): vscode.CompletionItem[] | undefined {
+		if (!this.ownsCommentDocument(document) || position.line !== 0) {
+			return undefined;
+		}
+		const prefix = document.lineAt(position.line).text.slice(0, position.character);
+		const leadingWhitespace = prefix.match(/^\s*/u)?.[0].length ?? 0;
+		const token = prefix.slice(leadingWhitespace);
+		const canonicalPrefix = "#aireview:";
+		const normalized = token.toLowerCase();
+		const isDirectivePrefix = canonicalPrefix.startsWith(normalized);
+		const isKeywordPrefix =
+			normalized.startsWith(canonicalPrefix) && /^[a-z]*$/u.test(normalized.slice(canonicalPrefix.length));
+		if (token && !isDirectivePrefix && !isKeywordPrefix) {
+			return undefined;
+		}
+
+		const range = new vscode.Range(0, leadingWhitespace, position.line, position.character);
+		return reviewCommentDirectives.map((directive, index) => {
+			const label = `#aireview:${directive.keyword}`;
+			const item = new vscode.CompletionItem(label, vscode.CompletionItemKind.EnumMember);
+			item.detail = directive.detail;
+			item.insertText = `${label} `;
+			item.filterText = label;
+			item.range = range;
+			item.sortText = `0000-${index.toString().padStart(2, "0")}`;
+			item.preselect = directive.kind === "change";
+			return item;
+		});
+	}
+
+	private ownsCommentDocument(document: vscode.TextDocument): boolean {
+		return (
+			document.uri.authority === this.controller.id || this.editCommentDocumentUris.has(document.uri.toString())
+		);
+	}
+
+	private expectEditCommentDocument(): void {
+		this.clearPendingEditCommentDocument();
+		// The public Comments API does not expose the input URI for an edited comment. Correlate the
+		// next unscoped comment document with the AI Review Edit action that caused it to open.
+		this.pendingEditCommentDocumentTimer = setTimeout(() => {
+			this.pendingEditCommentDocumentTimer = undefined;
+		}, 2_000);
+	}
+
+	private claimPendingEditCommentDocument(document: vscode.TextDocument): void {
+		if (
+			!this.pendingEditCommentDocumentTimer ||
+			document.uri.scheme !== "comment" ||
+			document.uri.authority ||
+			document.languageId !== "markdown"
+		) {
+			return;
+		}
+		this.editCommentDocumentUris.add(document.uri.toString());
+		this.clearPendingEditCommentDocument();
+	}
+
+	private clearPendingEditCommentDocument(): void {
+		if (this.pendingEditCommentDocumentTimer) {
+			clearTimeout(this.pendingEditCommentDocumentTimer);
+			this.pendingEditCommentDocumentTimer = undefined;
+		}
+	}
+
+	private parseSubmittedComment(value: string, defaultKind: ReviewNote["kind"]) {
+		try {
+			return parseReviewComment(value, defaultKind);
+		} catch (error) {
+			void vscode.window.showWarningMessage(error instanceof Error ? error.message : String(error));
+			return undefined;
+		}
+	}
 }
 
 class ReviewComment implements vscode.Comment {
@@ -348,6 +460,8 @@ class ReviewComment implements vscode.Comment {
 	mode = vscode.CommentMode.Preview;
 	author = { name: "AI Review" };
 	contextValue = "aireview.note";
+	kind: ReviewNote["kind"];
+	label: string;
 	timestamp: Date;
 
 	constructor(
@@ -357,6 +471,8 @@ class ReviewComment implements vscode.Comment {
 		this.noteId = note.id;
 		this.body = note.body;
 		this.savedBody = note.body;
+		this.kind = note.kind;
+		this.label = formatCommentKind(note.kind);
 		this.timestamp = new Date(note.updatedAt);
 	}
 }
@@ -386,4 +502,8 @@ function formatCommentStatus(status: ReviewNote["status"]): string {
 		blocked: "Blocked",
 		resolved: "Resolved"
 	}[status];
+}
+
+function formatCommentKind(kind: ReviewNote["kind"]): string {
+	return { change: "Change", question: "Question", explain: "Explain", test: "Add test" }[kind];
 }

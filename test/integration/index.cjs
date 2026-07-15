@@ -16,6 +16,25 @@ async function run() {
 	const toolResult = await vscode.lm.invokeTool("aireview", { input: {} });
 	assert.match(toolResult.content[0].value, /"notes": \[\]/);
 
+	const commentUri = vscode.Uri.from({
+		scheme: "comment",
+		authority: "aireview.comments",
+		path: "/aaskhan.aireview/commentinput-integration.md"
+	});
+	await vscode.workspace.openTextDocument(commentUri);
+	const completions = await vscode.commands.executeCommand(
+		"vscode.executeCompletionItemProvider",
+		commentUri,
+		new vscode.Position(0, 0)
+	);
+	const completionLabels = completions.items.map((item) =>
+		typeof item.label === "string" ? item.label : item.label.label
+	);
+	assert.deepEqual(
+		completionLabels.filter((label) => label.startsWith("#aireview:")),
+		["#aireview:change", "#aireview:question", "#aireview:explain", "#aireview:addTest"]
+	);
+
 	const document = await vscode.workspace.openTextDocument(
 		vscode.Uri.joinPath(extension.extensionUri, "src", "extension.ts")
 	);
