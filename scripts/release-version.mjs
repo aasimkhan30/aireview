@@ -5,15 +5,17 @@ export function getPreviewVersion(date) {
 	if (!(date instanceof Date) || Number.isNaN(date.valueOf())) {
 		throw new Error("A valid preview timestamp is required");
 	}
-	const timestamp = [
+	const datePart = [
 		String(date.getUTCFullYear()).padStart(4, "0"),
 		String(date.getUTCMonth() + 1).padStart(2, "0"),
-		String(date.getUTCDate()).padStart(2, "0"),
+		String(date.getUTCDate()).padStart(2, "0")
+	].join("");
+	const timePart = [
 		String(date.getUTCHours()).padStart(2, "0"),
 		String(date.getUTCMinutes()).padStart(2, "0"),
 		String(date.getUTCSeconds()).padStart(2, "0")
 	].join("");
-	return `${timestamp}.0.0`;
+	return `${datePart}.${timePart}.0`;
 }
 
 export function getNextStableVersion(currentVersion) {

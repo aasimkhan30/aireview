@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { getNextStableVersion, getPreviewVersion } from "./release-version.mjs";
 
-test("uses a readable UTC timestamp as the preview major version", () => {
-	assert.equal(getPreviewVersion(new Date("2026-07-15T03:00:04Z")), "20260715030004.0.0");
+test("uses a Marketplace-compatible readable UTC timestamp for previews", () => {
+	assert.equal(getPreviewVersion(new Date("2026-07-15T03:00:04Z")), "20260715.030004.0");
 });
 
 test("increments only the stable patch version", () => {

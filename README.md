@@ -76,7 +76,7 @@ npm run compile
 
 The [Publish VS Code Marketplace](.github/workflows/publish.yml) workflow has separate preview and stable channels. Every publication passes the full verification gate, builds a downloadable VSIX artifact, and only then authenticates to the Marketplace.
 
-Preview releases run daily at 08:17 UTC when `main` has changed since the last successful preview. Choose **preview** in the manual workflow to publish the current `main` commit even when it already has a preview. Preview versions use an ephemeral UTC timestamp in `YYYYMMDDHHmmss.0.0` form, such as `20260715030004.0.0`; neither `package.json` nor `package-lock.json` is committed. Because these versions sort above the stable `0.0.x` line, preview users intentionally remain on the preview track.
+Preview releases run daily at 08:17 UTC when `main` has changed since the last successful preview. Choose **preview** in the manual workflow to publish the current `main` commit even when it already has a preview. Preview versions use an ephemeral UTC timestamp in `YYYYMMDD.HHmmss.0` form, such as `20260715.030004.0`; neither `package.json` nor `package-lock.json` is committed. Splitting the timestamp keeps every component within Visual Studio Marketplace's numeric limit. Because these versions sort above the stable `0.0.x` line, preview users intentionally remain on the preview track.
 
 Stable releases only run manually. Choose **stable** to increment the committed patch version (`0.0.1` → `0.0.2` → `0.0.3`), verify it, commit and tag the version, publish it, and create a GitHub release containing the VSIX. A prepared tag without a GitHub release is treated as an interrupted publication and safely retried instead of bumping again.
 
