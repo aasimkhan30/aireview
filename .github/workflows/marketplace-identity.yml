@@ -1,0 +1,35 @@
+name: Inspect Marketplace Publishing Identity
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Resolve Marketplace profile ID
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: vscode-marketplace-preview
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Print Marketplace profile ID
+        run: |
+          profile_id="$(az rest \
+            --method get \
+            --url 'https://app.vssps.visualstudio.com/_apis/profile/profiles/me' \
+            --resource '499b84ac-1321-427f-aa17-267ca6975798' \
+            --query id \
+            --output tsv)"
+          echo "Marketplace profile ID: $profile_id"
