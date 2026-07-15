@@ -19,7 +19,7 @@
   "activationEvents": [
     "onStartupFinished",
     "onCommand:requestchanges.openReviewPanel",
-    "onCommand:requestchanges.addReviewNote",
+    "onCommand:requestchanges.addReviewComment",
     "onCommand:requestchanges.openSettings",
     "onLanguageModelTool:requestchanges",
     "onView:requestchanges.reviewView"
@@ -63,7 +63,7 @@
         "title": "Request Changes: Open Review Comments"
       },
       {
-        "command": "requestchanges.addReviewNote",
+        "command": "requestchanges.addReviewComment",
         "title": "Request Changes: Add Review Comment to Selection",
         "icon": "$(comment-add)"
       },
@@ -138,14 +138,14 @@
       ],
       "editor/context": [
         {
-          "command": "requestchanges.addReviewNote",
+          "command": "requestchanges.addReviewComment",
           "group": "navigation@20",
           "when": "editorTextFocus && editorHasSelection"
         }
       ],
       "view/title": [
         {
-          "command": "requestchanges.addReviewNote",
+          "command": "requestchanges.addReviewComment",
           "group": "navigation",
           "when": "view == requestchanges.reviewView"
         },

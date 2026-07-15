@@ -4,8 +4,12 @@ import type { StateEnvelope } from "./webviewProtocol";
 export const ReviewRpc = {
 	getState: new RequestType0<ReviewPanelStateEnvelope, void>("requestchanges.review.getState"),
 	startAnnotation: new RequestType0<void, void>("requestchanges.review.startAnnotation"),
-	updateNote: new RequestType<UpdateReviewNoteParams, ReviewPanelStateEnvelope, void>("requestchanges.review.updateNote"),
-	deleteNote: new RequestType<DeleteReviewNoteParams, ReviewPanelStateEnvelope, void>("requestchanges.review.deleteNote"),
+	updateNote: new RequestType<UpdateReviewNoteParams, ReviewPanelStateEnvelope, void>(
+		"requestchanges.review.updateNote"
+	),
+	deleteNote: new RequestType<DeleteReviewNoteParams, ReviewPanelStateEnvelope, void>(
+		"requestchanges.review.deleteNote"
+	),
 	revealNote: new RequestType<ReviewNoteIdParams, void, void>("requestchanges.review.revealNote"),
 	previewBundle: new RequestType0<ReviewBundlePreview, void>("requestchanges.review.previewBundle"),
 	copyBundle: new RequestType0<ReviewCopyResult, void>("requestchanges.review.copyBundle"),
@@ -74,7 +78,7 @@ export interface ReviewResolution {
 	readonly updatedAt: string;
 }
 
-export interface AddReviewNoteParams {
+export interface AddReviewCommentParams {
 	readonly id?: string;
 	readonly body: string;
 	readonly kind?: ReviewNoteKind;

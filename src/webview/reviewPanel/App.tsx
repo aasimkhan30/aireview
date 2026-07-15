@@ -248,7 +248,9 @@ export function App({ connection, diagnostics }: AppProps) {
 					</div>
 				</div>
 				<div className="review-header__actions">
-					<Badge aria-label={`${actionableCount} open review ${actionableCount === 1 ? "comment" : "comments"}`}>
+					<Badge
+						aria-label={`${actionableCount} open review ${actionableCount === 1 ? "comment" : "comments"}`}
+					>
 						{actionableCount}
 					</Badge>
 					<Button
@@ -416,7 +418,8 @@ export function App({ connection, diagnostics }: AppProps) {
 					{confirmClearResolved ? (
 						<div className="resolved-notes__confirmation" role="alert">
 							<span>
-								Permanently delete {resolvedCount} resolved {resolvedCount === 1 ? "comment" : "comments"}?
+								Permanently delete {resolvedCount} resolved{" "}
+								{resolvedCount === 1 ? "comment" : "comments"}?
 							</span>
 							<div>
 								<Button variant="ghost" size="sm" onClick={() => setConfirmClearResolved(false)}>

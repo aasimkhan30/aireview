@@ -116,9 +116,7 @@ server.registerTool(
 	}
 );
 
-const blockedResultSchema = z
-	.object({ commentId: z.string().min(1), reason: z.string().min(1).max(10_000) })
-	.strict();
+const blockedResultSchema = z.object({ commentId: z.string().min(1), reason: z.string().min(1).max(10_000) }).strict();
 
 server.registerTool(
 	"report_comments_blocked",
@@ -254,7 +252,10 @@ async function getClientRoots(): Promise<string[]> {
 	}
 }
 
-function formatReviewContext(comments: readonly ReviewNote[], state: Awaited<ReturnType<ReviewLedger["read"]>>): string {
+function formatReviewContext(
+	comments: readonly ReviewNote[],
+	state: Awaited<ReturnType<ReviewLedger["read"]>>
+): string {
 	return JSON.stringify(
 		{
 			workspace: state.workspace,
@@ -330,7 +331,9 @@ async function main(): Promise<void> {
 	}
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
-	console.error(`Request Changes MCP ${serverVersion} running for ${pathToFileURL(options.workspace ?? process.cwd())}`);
+	console.error(
+		`Request Changes MCP ${serverVersion} running for ${pathToFileURL(options.workspace ?? process.cwd())}`
+	);
 }
 
 process.on("SIGINT", () => {

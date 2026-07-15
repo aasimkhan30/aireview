@@ -46,11 +46,11 @@ async function run() {
 		await client.connect(transport);
 		const tools = await client.listTools();
 		assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
-			"requestchanges",
 			"claim_review_comments",
 			"get_review_status",
 			"report_comments_addressed",
-			"report_comments_blocked"
+			"report_comments_blocked",
+			"requestchanges"
 		]);
 		const context = await client.callTool({ name: "requestchanges", arguments: {} });
 		assert.equal(context.isError, undefined);

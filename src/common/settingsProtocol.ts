@@ -11,7 +11,9 @@ export const SettingsRpc = {
 	uninstallMcp: new RequestType<ManageMcpInstallationParams, RequestChangesSettingsState, void>(
 		"requestchanges.settings.uninstallMcp"
 	),
-	revealMcpConfig: new RequestType<ManageMcpInstallationParams, void, void>("requestchanges.settings.revealMcpConfig"),
+	revealMcpConfig: new RequestType<ManageMcpInstallationParams, void, void>(
+		"requestchanges.settings.revealMcpConfig"
+	),
 	revealData: new RequestType0<void, void>("requestchanges.settings.revealData")
 } as const;
 

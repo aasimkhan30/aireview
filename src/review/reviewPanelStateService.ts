@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import * as vscode from "vscode";
 import type {
-	AddReviewNoteParams,
+	AddReviewCommentParams,
 	ReviewAnchor,
 	ReviewAnchorState,
 	ReviewBundlePreview,
@@ -29,7 +29,7 @@ export interface IReviewPanelStateService {
 	captureActiveTextEditor(): void;
 	getState(): Promise<ReviewPanelStateEnvelope>;
 	refresh(): Promise<ReviewPanelStateEnvelope>;
-	addNote(input: AddReviewNoteParams): Promise<ReviewPanelStateEnvelope>;
+	addNote(input: AddReviewCommentParams): Promise<ReviewPanelStateEnvelope>;
 	updateNote(input: UpdateReviewNoteParams): Promise<ReviewPanelStateEnvelope>;
 	updateNoteAnchor(id: string, anchor: ReviewAnchor, anchorState: ReviewAnchorState): Promise<void>;
 	deleteNote(id: string): Promise<ReviewPanelStateEnvelope>;
@@ -94,7 +94,7 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 		return this.refreshPromise;
 	}
 
-	async addNote(input: AddReviewNoteParams): Promise<ReviewPanelStateEnvelope> {
+	async addNote(input: AddReviewCommentParams): Promise<ReviewPanelStateEnvelope> {
 		const operation = this.diagnostics.startOperation("reviewState", "note.add");
 		const now = new Date().toISOString();
 		const note: ReviewNote = {

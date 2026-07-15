@@ -1,6 +1,6 @@
 export const enum RequestChangesCommand {
 	OpenReviewPanel = "requestchanges.openReviewPanel",
-	AddReviewNote = "requestchanges.addReviewNote",
+	AddReviewComment = "requestchanges.addReviewComment",
 	OpenSettings = "requestchanges.openSettings",
 	CreateComment = "requestchanges.comment.create",
 	EditComment = "requestchanges.comment.edit",
@@ -18,7 +18,7 @@ export const enum RequestChangesCommand {
 
 export interface CommandArgumentTypeMapping {
 	[RequestChangesCommand.OpenReviewPanel]: [];
-	[RequestChangesCommand.AddReviewNote]: [];
+	[RequestChangesCommand.AddReviewComment]: [];
 	[RequestChangesCommand.OpenSettings]: [];
 	[RequestChangesCommand.CreateComment]: [reply: unknown];
 	[RequestChangesCommand.EditComment]: [comment: unknown];
@@ -36,7 +36,7 @@ export interface CommandArgumentTypeMapping {
 
 export interface CommandResultTypeMapping {
 	[RequestChangesCommand.OpenReviewPanel]: void;
-	[RequestChangesCommand.AddReviewNote]: void;
+	[RequestChangesCommand.AddReviewComment]: void;
 	[RequestChangesCommand.OpenSettings]: void;
 	[RequestChangesCommand.CreateComment]: void;
 	[RequestChangesCommand.EditComment]: void;

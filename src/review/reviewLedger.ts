@@ -36,7 +36,10 @@ export class ReviewLedger {
 		readonly location: ReviewLedgerLocation
 	) {}
 
-	static async open(workspaceRoot: string, dataDirectory = getDefaultRequestChangesDataDirectory()): Promise<ReviewLedger> {
+	static async open(
+		workspaceRoot: string,
+		dataDirectory = getDefaultRequestChangesDataDirectory()
+	): Promise<ReviewLedger> {
 		const canonicalRoot = await canonicalizeWorkspaceRoot(workspaceRoot);
 		const location = getReviewLedgerLocation(canonicalRoot, dataDirectory);
 		await mkdir(location.workspaceDirectory, { recursive: true, mode: 0o700 });

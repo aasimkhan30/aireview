@@ -69,7 +69,9 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 			}
 		};
 
-		this.commandRegistrationService.registerCommand(RequestChangesCommand.AddReviewNote, () => this.startAnnotation());
+		this.commandRegistrationService.registerCommand(RequestChangesCommand.AddReviewComment, () =>
+			this.startAnnotation()
+		);
 		this.commandRegistrationService.registerCommand(RequestChangesCommand.CreateComment, (value) =>
 			this.createComment(value)
 		);

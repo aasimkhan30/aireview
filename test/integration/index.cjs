@@ -10,7 +10,7 @@ async function run() {
 
 	const commands = await vscode.commands.getCommands(true);
 	assert.ok(commands.includes("requestchanges.openReviewPanel"));
-	assert.ok(commands.includes("requestchanges.addReviewNote"));
+	assert.ok(commands.includes("requestchanges.addReviewComment"));
 	assert.ok(commands.includes("requestchanges.openSettings"));
 	assert.ok(vscode.lm.tools.some((tool) => tool.name === "requestchanges"));
 	const toolResult = await vscode.lm.invokeTool("requestchanges", { input: {} });
@@ -40,7 +40,7 @@ async function run() {
 	);
 	const editor = await vscode.window.showTextDocument(document);
 	editor.selection = new vscode.Selection(0, 0, 0, Math.min(20, document.lineAt(0).text.length));
-	await vscode.commands.executeCommand("requestchanges.addReviewNote");
+	await vscode.commands.executeCommand("requestchanges.addReviewComment");
 	await vscode.commands.executeCommand("requestchanges.openReviewPanel");
 	await vscode.commands.executeCommand("requestchanges.openSettings");
 	await new Promise((resolve) => setTimeout(resolve, 300));

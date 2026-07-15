@@ -79,10 +79,14 @@ export class ReviewMcpInstaller {
 		}
 		const existing = await this.getInstallation(client, scope);
 		if (existing.status === "external") {
-			throw new Error(`Request Changes cannot replace the externally managed configuration in ${existing.configFile}`);
+			throw new Error(
+				`Request Changes cannot replace the externally managed configuration in ${existing.configFile}`
+			);
 		}
 		if (existing.status === "invalid") {
-			throw new Error(`Fix the invalid JSON configuration in ${existing.configFile} before installing Request Changes`);
+			throw new Error(
+				`Fix the invalid JSON configuration in ${existing.configFile} before installing Request Changes`
+			);
 		}
 		await this.prepareServer();
 		const nodeCommand = this.options.nodeCommand ?? (await findExecutable("node")) ?? "node";
@@ -114,7 +118,9 @@ export class ReviewMcpInstaller {
 			return;
 		}
 		if (existing.status !== "managed") {
-			throw new Error(`Request Changes will not remove the externally managed configuration in ${existing.configFile}`);
+			throw new Error(
+				`Request Changes will not remove the externally managed configuration in ${existing.configFile}`
+			);
 		}
 		const target = getConfigTarget(client, scope, this.options.workspaceRoot);
 		if (target.format === "toml") {
