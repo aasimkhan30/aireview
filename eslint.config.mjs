@@ -6,7 +6,16 @@ import tseslint from "typescript-eslint";
 
 export default defineConfig(
 	{
-		ignores: [".vscode-test/**", "coverage/**", "media/**", "node_modules/**", "out/**", "src/util/vs/**"]
+		ignores: [
+			".artifacts/**",
+			".vscode-test/**",
+			"coverage/**",
+			"dist/**",
+			"media/**",
+			"node_modules/**",
+			"out/**",
+			"src/util/vs/**"
+		]
 	},
 	eslint.configs.recommended,
 	...tseslint.configs.recommended,

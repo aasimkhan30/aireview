@@ -1,4 +1,5 @@
 const esbuild = require("esbuild");
+const { version } = require("./package.json");
 
 const production = process.argv.includes("--production");
 const watch = process.argv.includes("--watch");
@@ -73,7 +74,8 @@ async function main() {
 		platform: "node",
 		outfile: "out/requestchanges-mcp.js",
 		define: {
-			"process.env.NODE_ENV": JSON.stringify(production ? "production" : "development")
+			"process.env.NODE_ENV": JSON.stringify(production ? "production" : "development"),
+			__REQUEST_CHANGES_VERSION__: JSON.stringify(version)
 		},
 		sourcemap: !production,
 		minify: production,

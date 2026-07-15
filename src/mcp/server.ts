@@ -7,7 +7,9 @@ import { z } from "zod";
 import type { ReviewNote, ReviewNoteStatus, ReviewResolution } from "../common/reviewProtocol";
 import { getDefaultRequestChangesDataDirectory, ReviewLedger } from "../review/reviewLedger";
 
-const serverVersion = "0.0.1";
+declare const __REQUEST_CHANGES_VERSION__: string;
+
+const serverVersion = __REQUEST_CHANGES_VERSION__;
 const options = readOptions(process.argv.slice(2));
 const clientName = options.client ?? process.env.REQUEST_CHANGES_CLIENT ?? "MCP agent";
 

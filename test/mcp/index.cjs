@@ -44,6 +44,8 @@ async function run() {
 	const client = new Client({ name: "requestchanges-smoke", version: "1.0.0" });
 	try {
 		await client.connect(transport);
+		assert.equal(client.getServerVersion()?.name, "requestchanges");
+		assert.equal(client.getServerVersion()?.version, require("../../package.json").version);
 		const tools = await client.listTools();
 		assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
 			"claim_review_comments",
