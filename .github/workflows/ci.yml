@@ -32,13 +32,13 @@ jobs:
         run: xvfb-run -a npm run check
 
       - name: Build VSIX
-        run: npm run package -- --out aireview.vsix
+        run: npm run package -- --out request-changes.vsix
 
       - name: Upload VSIX
         id: upload-vsix
         uses: actions/upload-artifact@v7
         with:
-          path: aireview.vsix
+          path: request-changes.vsix
           if-no-files-found: error
           archive: false
 
@@ -47,4 +47,4 @@ jobs:
           ARTIFACT_DIGEST: ${{ steps.upload-vsix.outputs.artifact-digest }}
           ARTIFACT_URL: ${{ steps.upload-vsix.outputs.artifact-url }}
         run: |
-          printf '## Built VSIX\n\n[Download aireview.vsix](%s)\n\nSHA-256: %s\n' "$ARTIFACT_URL" "$ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          printf '## Built VSIX\n\n[Download request-changes.vsix](%s)\n\nSHA-256: %s\n' "$ARTIFACT_URL" "$ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"

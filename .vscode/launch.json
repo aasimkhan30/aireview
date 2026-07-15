@@ -7,11 +7,11 @@
       "request": "launch",
       "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
       "env": {
-        "AIREVIEW_LOG_LEVEL": "debug",
-        "AIREVIEW_LOG_AREAS": "lifecycle,diagnostics,reviewStore,reviewState,git,commands,webview",
-        "AIREVIEW_LOG_DIRECTORY": ".artifacts",
-        "AIREVIEW_LOG_FILE": "{runId}.ndjson",
-        "AIREVIEW_DATA_DIR": "${workspaceFolder}/.artifacts/development-data"
+        "REQUEST_CHANGES_LOG_LEVEL": "debug",
+        "REQUEST_CHANGES_LOG_AREAS": "lifecycle,diagnostics,reviewStore,reviewState,git,commands,webview",
+        "REQUEST_CHANGES_LOG_DIRECTORY": ".artifacts",
+        "REQUEST_CHANGES_LOG_FILE": "{runId}.ndjson",
+        "REQUEST_CHANGES_DATA_DIR": "${workspaceFolder}/.artifacts/development-data"
       },
       "outFiles": ["${workspaceFolder}/out/**/*.js"],
       "preLaunchTask": "npm: watch"
@@ -25,11 +25,11 @@
         "--extensionTestsPath=${workspaceFolder}/test/integration/index.cjs"
       ],
       "env": {
-        "AIREVIEW_LOG_LEVEL": "info",
-        "AIREVIEW_LOG_AREAS": "lifecycle,diagnostics,reviewStore,reviewState,git,commands,webview",
-        "AIREVIEW_LOG_DIRECTORY": ".artifacts",
-        "AIREVIEW_LOG_FILE": "{runId}.ndjson",
-        "AIREVIEW_DATA_DIR": "${workspaceFolder}/.artifacts/integration-data"
+        "REQUEST_CHANGES_LOG_LEVEL": "info",
+        "REQUEST_CHANGES_LOG_AREAS": "lifecycle,diagnostics,reviewStore,reviewState,git,commands,webview",
+        "REQUEST_CHANGES_LOG_DIRECTORY": ".artifacts",
+        "REQUEST_CHANGES_LOG_FILE": "{runId}.ndjson",
+        "REQUEST_CHANGES_DATA_DIR": "${workspaceFolder}/.artifacts/integration-data"
       },
       "outFiles": ["${workspaceFolder}/out/**/*.js"],
       "preLaunchTask": "npm: compile:production"

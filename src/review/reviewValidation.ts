@@ -14,15 +14,15 @@ const noteStatuses: readonly ReviewNoteStatus[] = ["draft", "in_progress", "addr
 
 export function normalizeUpdateReviewNoteParams(value: unknown): UpdateReviewNoteParams {
 	if (!value || typeof value !== "object") {
-		throw new Error("Expected review note parameters");
+		throw new Error("Expected review comment parameters");
 	}
 	const params = value as Partial<UpdateReviewNoteParams>;
 	if (!isNonEmptyString(params.id)) {
-		throw new Error("Review note id is required");
+		throw new Error("Review comment id is required");
 	}
 	const body = params.body === undefined ? undefined : params.body.trim();
 	if (body !== undefined && body.length === 0) {
-		throw new Error("Review note body is required");
+		throw new Error("Review comment body is required");
 	}
 	return {
 		id: params.id,
@@ -39,7 +39,7 @@ export function normalizeDeleteReviewNoteParams(value: unknown): DeleteReviewNot
 
 export function normalizeReviewNoteIdParams(value: unknown): ReviewNoteIdParams {
 	if (!value || typeof value !== "object" || !isNonEmptyString((value as Partial<ReviewNoteIdParams>).id)) {
-		throw new Error("Review note id is required");
+		throw new Error("Review comment id is required");
 	}
 	return { id: (value as ReviewNoteIdParams).id };
 }
