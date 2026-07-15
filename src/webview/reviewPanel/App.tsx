@@ -177,8 +177,8 @@ export function App({ connection, diagnostics }: AppProps) {
 				receiveState(result);
 				setMessage(
 					resolving
-						? "Note resolved and moved to Resolved notes."
-						: "Note reopened and moved to active notes."
+						? "Comment resolved and moved to resolved comments."
+						: "Comment reopened and moved to active comments."
 				);
 			}
 		);
@@ -197,7 +197,7 @@ export function App({ connection, diagnostics }: AppProps) {
 					result = await connection.sendRequest(ReviewRpc.deleteNote, { id });
 				}
 				if (!result) {
-					throw new Error("No resolved notes were available to clear.");
+					throw new Error("No resolved comments were available to clear.");
 				}
 				return result;
 			},
@@ -206,7 +206,7 @@ export function App({ connection, diagnostics }: AppProps) {
 				setConfirmClearResolved(false);
 				setShowResolved(false);
 				setMessage(
-					`${resolvedIds.length} resolved ${resolvedIds.length === 1 ? "note" : "notes"} permanently deleted.`
+					`${resolvedIds.length} resolved ${resolvedIds.length === 1 ? "comment" : "comments"} permanently deleted.`
 				);
 			}
 		);
@@ -248,7 +248,7 @@ export function App({ connection, diagnostics }: AppProps) {
 					</div>
 				</div>
 				<div className="review-header__actions">
-					<Badge aria-label={`${actionableCount} open review ${actionableCount === 1 ? "note" : "notes"}`}>
+					<Badge aria-label={`${actionableCount} open review ${actionableCount === 1 ? "comment" : "comments"}`}>
 						{actionableCount}
 					</Badge>
 					<Button
@@ -277,8 +277,8 @@ export function App({ connection, diagnostics }: AppProps) {
 					<Button
 						variant="ghost"
 						size="icon"
-						aria-label="Refresh review notes"
-						title="Refresh review notes"
+						aria-label="Refresh review comments"
+						title="Refresh review comments"
 						onClick={() => void refresh()}
 						disabled={Boolean(busy)}
 					>
@@ -310,10 +310,10 @@ export function App({ connection, diagnostics }: AppProps) {
 				disabled={Boolean(busy)}
 			>
 				<Plus aria-hidden="true" size={15} />
-				Add note from editor selection
+				Add comment from editor selection
 			</Button>
 
-			<section className="review-notes" aria-label="Active review notes">
+			<section className="review-notes" aria-label="Active review comments">
 				{activeGroupedNotes.length === 0 ? (
 					<div className="empty-state">
 						{resolvedCount ? (
@@ -325,10 +325,10 @@ export function App({ connection, diagnostics }: AppProps) {
 						) : (
 							<MessageSquarePlus className="empty-state__icon" aria-hidden="true" size={28} />
 						)}
-						<strong>{resolvedCount ? "No active review notes" : "No review notes yet"}</strong>
+						<strong>{resolvedCount ? "No active review comments" : "No review comments yet"}</strong>
 						<span>
 							{resolvedCount
-								? `${resolvedCount} resolved ${resolvedCount === 1 ? "note is" : "notes are"} available below.`
+								? `${resolvedCount} resolved ${resolvedCount === 1 ? "comment is" : "comments are"} available below.`
 								: "Select code in the editor, then choose “Request Changes: Add Review Comment to Selection.”"}
 						</span>
 					</div>
@@ -363,7 +363,7 @@ export function App({ connection, diagnostics }: AppProps) {
 						<div>
 							<strong id="review-bundle-preview-title">Bundle preview</strong>
 							<span>
-								{preview.noteCount} notes · {preview.fileCount} files
+								{preview.noteCount} comments · {preview.fileCount} files
 								{preview.orphanedCount ? ` · ${preview.orphanedCount} orphaned` : ""}
 							</span>
 						</div>
@@ -384,14 +384,14 @@ export function App({ connection, diagnostics }: AppProps) {
 			) : undefined}
 
 			{resolvedCount ? (
-				<section className="resolved-notes" aria-label="Resolved review notes">
+				<section className="resolved-notes" aria-label="Resolved review comments">
 					<div className="resolved-notes__toolbar">
 						<Button
 							className="resolved-notes__toggle"
 							variant="ghost"
 							size="sm"
 							aria-expanded={showResolved}
-							aria-controls="resolved-review-notes"
+							aria-controls="resolved-review-comments"
 							onClick={() => setShowResolved((visible) => !visible)}
 						>
 							<ChevronRight
@@ -406,7 +406,7 @@ export function App({ connection, diagnostics }: AppProps) {
 							className="resolved-notes__clear"
 							variant="ghost"
 							size="sm"
-							aria-label={`Clear ${resolvedCount} resolved ${resolvedCount === 1 ? "note" : "notes"}`}
+							aria-label={`Clear ${resolvedCount} resolved ${resolvedCount === 1 ? "comment" : "comments"}`}
 							onClick={() => setConfirmClearResolved(true)}
 							disabled={Boolean(busy)}
 						>
@@ -416,7 +416,7 @@ export function App({ connection, diagnostics }: AppProps) {
 					{confirmClearResolved ? (
 						<div className="resolved-notes__confirmation" role="alert">
 							<span>
-								Permanently delete {resolvedCount} resolved {resolvedCount === 1 ? "note" : "notes"}?
+								Permanently delete {resolvedCount} resolved {resolvedCount === 1 ? "comment" : "comments"}?
 							</span>
 							<div>
 								<Button variant="ghost" size="sm" onClick={() => setConfirmClearResolved(false)}>
@@ -434,7 +434,7 @@ export function App({ connection, diagnostics }: AppProps) {
 						</div>
 					) : undefined}
 					{showResolved ? (
-						<div className="resolved-notes__content" id="resolved-review-notes">
+						<div className="resolved-notes__content" id="resolved-review-comments">
 							<ReviewNoteGroups
 								groups={resolvedGroupedNotes}
 								editing={editing}
@@ -472,7 +472,11 @@ function ReviewNoteGroups({
 	onDelete
 }: ReviewNoteGroupsProps) {
 	return groups.map(([filePath, notes]) => (
-		<section className="file-group" aria-label={`${filePath}, ${notes.length} notes`} key={filePath}>
+		<section
+			className="file-group"
+			aria-label={`${filePath}, ${notes.length} ${notes.length === 1 ? "comment" : "comments"}`}
+			key={filePath}
+		>
 			<header className="file-group__header">
 				<FileText aria-hidden="true" size={14} />
 				<span title={filePath}>{filePath}</span>
@@ -482,13 +486,13 @@ function ReviewNoteGroups({
 				{notes.map((note) => (
 					<article
 						className={`note-card note-card--${note.status}`}
-						aria-label={`${formatKind(note.kind)} note, ${formatStatus(note.status)}, ${formatNoteLocation(note)}`}
+						aria-label={`${formatKind(note.kind)} comment, ${formatStatus(note.status)}, ${formatNoteLocation(note)}`}
 						key={note.id}
 					>
 						{editing?.id === note.id ? (
 							<div className="note-editor">
 								<label className="sr-only" htmlFor={`note-kind-${note.id}`}>
-									Note type
+									Comment type
 								</label>
 								<select
 									id={`note-kind-${note.id}`}
@@ -506,7 +510,7 @@ function ReviewNoteGroups({
 									<option value="test">Add test</option>
 								</select>
 								<label className="sr-only" htmlFor={`note-body-${note.id}`}>
-									Review note
+									Review comment
 								</label>
 								<Textarea
 									id={`note-body-${note.id}`}
@@ -624,7 +628,7 @@ function reduceRemoteReviewState(state: RemoteReviewState, action: RemoteReviewA
 function groupNotes(notes: readonly ReviewNote[]): [string, ReviewNote[]][] {
 	const groups = new Map<string, ReviewNote[]>();
 	for (const note of notes) {
-		const filePath = note.anchor?.filePath ?? "Unattached notes";
+		const filePath = note.anchor?.filePath ?? "Unattached comments";
 		const group = groups.get(filePath) ?? [];
 		group.push(note);
 		groups.set(filePath, group);
