@@ -17,6 +17,21 @@
       "preLaunchTask": "npm: watch"
     },
     {
+      "name": "Run Extension with Screenshot Demo",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}", "${env:HOME}/src/pulseboard-demo"],
+      "env": {
+        "REQUEST_CHANGES_LOG_LEVEL": "debug",
+        "REQUEST_CHANGES_LOG_AREAS": "lifecycle,diagnostics,reviewStore,reviewState,git,commands,webview",
+        "REQUEST_CHANGES_LOG_DIRECTORY": ".artifacts",
+        "REQUEST_CHANGES_LOG_FILE": "{runId}.ndjson",
+        "REQUEST_CHANGES_DATA_DIR": "${workspaceFolder}/.artifacts/development-data"
+      },
+      "outFiles": ["${workspaceFolder}/out/**/*.js"],
+      "preLaunchTask": "npm: watch"
+    },
+    {
       "name": "Extension Tests",
       "type": "extensionHost",
       "request": "launch",

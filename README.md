@@ -8,6 +8,36 @@ Agents read review comments through the bundled MCP server, edit code with their
 
 Type `#` in a new or edited review comment to select a comment type from completion suggestions: `#requestchanges:change`, `#requestchanges:question`, `#requestchanges:explain`, or `#requestchanges:addTest`. The directive is removed when the comment is saved; new comments without one default to **Change**, while edited comments keep their existing type. Types can also be changed from the Review Comments view.
 
+## Product tour
+
+### Review agent-written code at a glance
+
+Comments stay grouped by file while their Open, In progress, Addressed, and Blocked states make the review status immediately visible.
+
+![Request Changes sidebar with review comments grouped by file and status](docs/images/review-comments-overview.png)
+
+### Keep reviews attached to code
+
+Native VS Code comment threads keep each change request or question beside the exact code under review.
+
+![VS Code editor showing Change and Question review comments attached to selected TypeScript lines](docs/images/inline-review-comments.png)
+
+### Resolve without losing history
+
+Resolved comments remain visible in the editor and in a dedicated accordion until you decide to clear them.
+
+![VS Code editor showing a resolved Request Changes comment attached to TypeScript code](docs/images/resolved-editor-comment.png)
+
+![Resolved comments accordion with grouped comments and Reopen and Clear resolved actions](docs/images/resolved-comments-panel.png)
+
+### Connect your coding agent
+
+Configure overall instructions and install the local MCP server for each supported coding agent and scope.
+
+![Request Changes settings with overall instructions and MCP installation controls for coding agents](docs/images/mcp-integration-settings.png)
+
+Maintainers can recreate all review data with `npm run seed:development` in `~/src/pulseboard-demo`, then launch **Run Extension with Screenshot Demo** from this repository.
+
 ## Agent integrations
 
 Open **Request Changes: Open Settings** or use the gear in the Review Comments view. The settings panel:
