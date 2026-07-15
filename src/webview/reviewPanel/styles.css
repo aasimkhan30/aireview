@@ -6,8 +6,14 @@ body {
 	margin: 0;
 	padding: 0;
 	min-width: 240px;
+	height: 100vh;
+	overflow: hidden;
 	color: var(--foreground);
 	background: var(--ai-shell-background);
+}
+
+#root {
+	height: 100%;
 }
 
 button,
@@ -33,7 +39,9 @@ pre {
 	display: flex;
 	flex-direction: column;
 	gap: 10px;
-	min-height: 100vh;
+	height: 100%;
+	min-height: 0;
+	overflow: hidden;
 	padding: 10px 6px;
 }
 
@@ -112,10 +120,6 @@ pre {
 	background: var(--vscode-inputValidation-errorBackground, var(--background));
 }
 
-.add-selection {
-	align-self: flex-start;
-}
-
 .review-notes,
 .file-group__notes {
 	display: flex;
@@ -124,13 +128,23 @@ pre {
 
 .review-notes {
 	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
 	gap: 12px;
+	scrollbar-gutter: stable;
 }
 
 .resolved-notes {
+	display: flex;
+	flex: 0 1 auto;
+	flex-direction: column;
+	max-height: min(65vh, 480px);
 	margin-top: auto;
 	padding-top: 6px;
 	border-top: 1px solid var(--ai-separator);
+	background: var(--ai-shell-background);
+	box-shadow: 0 -8px 12px -12px var(--vscode-scrollbar-shadow, #000);
 }
 
 .resolved-notes__toolbar,
@@ -188,9 +202,14 @@ pre {
 
 .resolved-notes__content {
 	display: flex;
+	min-height: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
 	flex-direction: column;
 	gap: 12px;
 	margin-top: 6px;
+	padding-bottom: 2px;
+	scrollbar-gutter: stable;
 }
 
 .file-group {

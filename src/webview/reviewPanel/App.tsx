@@ -9,7 +9,6 @@ import {
 	MessageSquare,
 	MessageSquarePlus,
 	Pencil,
-	Plus,
 	RefreshCw,
 	Trash2,
 	X
@@ -131,10 +130,6 @@ export function App({ connection, diagnostics }: AppProps) {
 
 	async function refresh(): Promise<void> {
 		await runOperation("state.refresh", () => connection.sendRequest(ReviewRpc.getState), receiveState);
-	}
-
-	async function startAnnotation(): Promise<void> {
-		await runOperation("annotation.start", () => connection.sendRequest(ReviewRpc.startAnnotation));
 	}
 
 	async function revealNote(id: string): Promise<void> {
@@ -305,16 +300,6 @@ export function App({ connection, diagnostics }: AppProps) {
 				</div>
 			) : undefined}
 
-			<Button
-				className="add-selection"
-				variant="secondary"
-				onClick={() => void startAnnotation()}
-				disabled={Boolean(busy)}
-			>
-				<Plus aria-hidden="true" size={15} />
-				Add comment from editor selection
-			</Button>
-
 			<section className="review-notes" aria-label="Active review comments">
 				{activeGroupedNotes.length === 0 ? (
 					<div className="empty-state">
@@ -331,7 +316,7 @@ export function App({ connection, diagnostics }: AppProps) {
 						<span>
 							{resolvedCount
 								? `${resolvedCount} resolved ${resolvedCount === 1 ? "comment is" : "comments are"} available below.`
-								: "Select code in the editor, then choose “Request Changes: Add Review Comment to Selection.”"}
+								: "Select code, then use the comment-add button above or right-click and choose Add Review Comment."}
 						</span>
 					</div>
 				) : (
