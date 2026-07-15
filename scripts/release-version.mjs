@@ -15,7 +15,7 @@ export function getPreviewVersion(date) {
 		String(date.getUTCMinutes()).padStart(2, "0"),
 		String(date.getUTCSeconds()).padStart(2, "0")
 	].join("");
-	return `${datePart}.${timePart}.0`;
+	return `${datePart}.${Number(timePart)}.0`;
 }
 
 export function getNextStableVersion(currentVersion) {
