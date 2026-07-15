@@ -82,7 +82,7 @@ Stable releases only run manually. Choose **stable** to increment the committed 
 
 Publishing uses Microsoft Entra workload identity federation instead of a long-lived Personal Access Token. One-time setup is required:
 
-1. Create the `aaskhan` Visual Studio Marketplace publisher and authorize a Microsoft Entra managed identity as a Contributor.
+1. Create the `aasimkhan30` Visual Studio Marketplace publisher and authorize a Microsoft Entra managed identity as a Contributor.
 2. Configure that identity to trust this repository's `vscode-marketplace-preview` and `vscode-marketplace` GitHub environments through OIDC.
 3. Add `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID` as repository variables available to both environments.
 4. Leave `vscode-marketplace-preview` automatic. Add required reviewers to `vscode-marketplace` so stable publishing needs explicit approval.
