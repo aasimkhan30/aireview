@@ -72,6 +72,19 @@ npm run test:integration
 npm run compile
 ```
 
+## Publishing
+
+The [Publish VS Code Marketplace](.github/workflows/publish.yml) workflow publishes a GitHub release whose tag matches the version in `package.json` (for example, `v0.1.0`). It can also be rerun manually with the matching version. Every publication passes the full verification gate and builds the VSIX before authenticating to the Marketplace.
+
+Publishing uses Microsoft Entra workload identity federation instead of a long-lived Personal Access Token. One-time setup is required:
+
+1. Create the `aaskhan` Visual Studio Marketplace publisher and authorize a Microsoft Entra managed identity as a Contributor.
+2. Configure that identity to trust this repository's `vscode-marketplace` GitHub environment through OIDC.
+3. Create the protected `vscode-marketplace` environment and add `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID` as environment variables.
+4. Add required reviewers to the environment so publishing needs explicit approval.
+
+See the official [secure automated publishing](https://code.visualstudio.com/api/working-with-extensions/publishing-extension#secure-automated-publishing-to-visual-studio-marketplace) and [GitHub OIDC with Azure](https://docs.github.com/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-azure) setup guides.
+
 ## Diagnostics
 
 The extension creates the `Request Changes` VS Code log channel before initializing dependency injection. Selected events are sent both to that channel and to one NDJSON artifact for each activation. Artifact failures do not prevent activation, and individual sink failures are isolated.

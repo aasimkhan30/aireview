@@ -2,6 +2,11 @@
   "name": "request-changes",
   "displayName": "Request Changes",
   "description": "Review agent-written code like a pull request and send requested changes back through MCP.",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#111C6C",
+    "theme": "dark"
+  },
   "version": "0.0.1",
   "publisher": "aaskhan",
   "private": true,

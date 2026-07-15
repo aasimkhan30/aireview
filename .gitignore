@@ -1,6 +1,7 @@
 node_modules/
 out/
-media/
+media/*
+!media/icon.png
 dist/
 *.vsix
 .vscode-test/

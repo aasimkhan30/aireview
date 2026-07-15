@@ -12,6 +12,7 @@ process.stdout.write(output);
 const packagedFiles = new Set(output.split(/\r?\n/u).filter(Boolean));
 const requiredFiles = [
 	"License.txt",
+	"media/icon.png",
 	"media/reviewPanel.css",
 	"media/reviewPanel.js",
 	"media/settings.css",
