@@ -74,14 +74,19 @@ npm run compile
 
 ## Publishing
 
-The [Publish VS Code Marketplace](.github/workflows/publish.yml) workflow publishes a GitHub release whose tag matches the version in `package.json` (for example, `v0.1.0`). It can also be rerun manually with the matching version. Every publication passes the full verification gate and builds the VSIX before authenticating to the Marketplace.
+The [Publish VS Code Marketplace](.github/workflows/publish.yml) workflow has separate preview and stable channels. Every publication passes the full verification gate, builds a downloadable VSIX artifact, and only then authenticates to the Marketplace.
+
+Preview releases run daily at 08:17 UTC when `main` has changed since the last successful preview. Choose **preview** in the manual workflow to publish the current `main` commit even when it already has a preview. Preview versions use an ephemeral UTC timestamp in `YYYYMMDDHHmmss.0.0` form, such as `20260715030004.0.0`; neither `package.json` nor `package-lock.json` is committed. Because these versions sort above the stable `0.0.x` line, preview users intentionally remain on the preview track.
+
+Stable releases only run manually. Choose **stable** to increment the committed patch version (`0.0.1` → `0.0.2` → `0.0.3`), verify it, commit and tag the version, publish it, and create a GitHub release containing the VSIX. A prepared tag without a GitHub release is treated as an interrupted publication and safely retried instead of bumping again.
 
 Publishing uses Microsoft Entra workload identity federation instead of a long-lived Personal Access Token. One-time setup is required:
 
 1. Create the `aaskhan` Visual Studio Marketplace publisher and authorize a Microsoft Entra managed identity as a Contributor.
-2. Configure that identity to trust this repository's `vscode-marketplace` GitHub environment through OIDC.
-3. Create the protected `vscode-marketplace` environment and add `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID` as environment variables.
-4. Add required reviewers to the environment so publishing needs explicit approval.
+2. Configure that identity to trust this repository's `vscode-marketplace-preview` and `vscode-marketplace` GitHub environments through OIDC.
+3. Add `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID` as repository variables available to both environments.
+4. Leave `vscode-marketplace-preview` automatic. Add required reviewers to `vscode-marketplace` so stable publishing needs explicit approval.
+5. Allow the workflow's GitHub Actions token to push the stable version commit and tag to `main`, including any necessary branch-protection exception.
 
 See the official [secure automated publishing](https://code.visualstudio.com/api/working-with-extensions/publishing-extension#secure-automated-publishing-to-visual-studio-marketplace) and [GitHub OIDC with Azure](https://docs.github.com/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-azure) setup guides.
 

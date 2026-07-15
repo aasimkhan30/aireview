@@ -1,0 +1,238 @@
+name: Publish VS Code Marketplace
+
+on:
+  schedule:
+    - cron: "17 8 * * *"
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Release channel
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - stable
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vscode-marketplace
+  cancel-in-progress: false
+
+jobs:
+  preview:
+    name: Publish preview
+    if: github.event_name == 'schedule' || inputs.channel == 'preview'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: vscode-marketplace-preview
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_CORE_OUTPUT: none
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Identify main commit
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Check for an existing preview of this commit
+        id: preview-marker
+        uses: actions/cache/restore@v6
+        with:
+          path: .preview-published
+          key: vscode-marketplace-preview-${{ steps.source.outputs.sha }}
+          lookup-only: true
+
+      - name: Decide whether to publish
+        id: decision
+        env:
+          CACHE_HIT: ${{ steps.preview-marker.outputs.cache-hit }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ] && [ "$CACHE_HIT" = "true" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "This main commit already has a preview build."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node.js
+        if: steps.decision.outputs.publish == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.decision.outputs.publish == 'true'
+        run: npm ci
+
+      - name: Set ephemeral preview version
+        if: steps.decision.outputs.publish == 'true'
+        id: version
+        run: |
+          version="$(node scripts/release-version.mjs preview)"
+          npm version "$version" --no-git-tag-version
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "vsix=request-changes-preview-$version.vsix" >> "$GITHUB_OUTPUT"
+
+      - name: Run verification gate
+        if: steps.decision.outputs.publish == 'true'
+        run: xvfb-run -a npm run check
+
+      - name: Build preview VSIX
+        if: steps.decision.outputs.publish == 'true'
+        run: >-
+          npm run package --
+          --pre-release
+          --out "${{ steps.version.outputs.vsix }}"
+
+      - name: Upload preview VSIX
+        if: steps.decision.outputs.publish == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: request-changes-preview-${{ steps.version.outputs.version }}
+          path: ${{ steps.version.outputs.vsix }}
+          if-no-files-found: error
+          archive: false
+
+      - name: Sign in to Azure with OIDC
+        if: steps.decision.outputs.publish == 'true'
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Publish preview to Visual Studio Marketplace
+        if: steps.decision.outputs.publish == 'true'
+        run: >-
+          npx vsce publish
+          --packagePath "${{ steps.version.outputs.vsix }}"
+          --pre-release
+          --azure-credential
+
+      - name: Record published commit
+        if: steps.decision.outputs.publish == 'true'
+        run: echo "${{ steps.source.outputs.sha }}" > .preview-published
+
+      - name: Save published preview marker
+        if: steps.decision.outputs.publish == 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .preview-published
+          key: vscode-marketplace-preview-${{ steps.source.outputs.sha }}
+
+  stable:
+    name: Publish stable release
+    if: github.event_name == 'workflow_dispatch' && inputs.channel == 'stable'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: vscode-marketplace
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      AZURE_CORE_OUTPUT: none
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out main with tags
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Prepare stable version
+        id: version
+        run: |
+          current_version="$(node -p "require('./package.json').version")"
+          current_tag="v$current_version"
+
+          if git rev-parse --verify --quiet "refs/tags/$current_tag" >/dev/null && \
+             ! gh release view "$current_tag" >/dev/null 2>&1; then
+            git checkout "$current_tag"
+            version="$current_version"
+            retry=true
+          else
+            version="$(node scripts/release-version.mjs stable)"
+            npm version "$version" --no-git-tag-version
+            retry=false
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "vsix=request-changes-$version.vsix" >> "$GITHUB_OUTPUT"
+          echo "retry=$retry" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run verification gate
+        run: xvfb-run -a npm run check
+
+      - name: Build stable VSIX
+        run: npm run package -- --out "${{ steps.version.outputs.vsix }}"
+
+      - name: Upload stable VSIX
+        uses: actions/upload-artifact@v7
+        with:
+          name: request-changes-${{ steps.version.outputs.version }}
+          path: ${{ steps.version.outputs.vsix }}
+          if-no-files-found: error
+          archive: false
+
+      - name: Commit stable version
+        if: steps.version.outputs.retry == 'false'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "release: $TAG"
+          git tag -a "$TAG" -m "Request Changes $TAG"
+          git push --atomic origin HEAD:main "refs/tags/$TAG"
+
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Publish stable release to Visual Studio Marketplace
+        env:
+          RETRY: ${{ steps.version.outputs.retry }}
+          VSIX: ${{ steps.version.outputs.vsix }}
+        run: |
+          options=(--packagePath "$VSIX" --azure-credential)
+          if [ "$RETRY" = "true" ]; then
+            options+=(--skip-duplicate)
+          fi
+          npx vsce publish "${options[@]}"
+
+      - name: Create GitHub release
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          VSIX: ${{ steps.version.outputs.vsix }}
+        run: >-
+          gh release create "$TAG" "$VSIX"
+          --verify-tag
+          --generate-notes
+          --title "Request Changes $VERSION"
