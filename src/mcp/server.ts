@@ -17,7 +17,7 @@ const server = new McpServer(
 	{ name: "requestchanges", version: serverVersion },
 	{
 		instructions:
-			"Request Changes exposes human review comments on agent-written code. Use these tools only when the user explicitly asks for Request Changes or mentions requestchanges. Read open comments with the requestchanges tool, edit code using the client's normal coding tools, run appropriate verification, then report every comment as addressed or blocked. Addressed comments still require human acceptance."
+			"Request Changes exposes human review comments on agent-written code. Use these tools only when the user explicitly asks for Request Changes or mentions requestchanges. Read open comments with the requestchanges tool, edit code using the client's normal coding tools, run appropriate verification, then report every comment as addressed or blocked. After all comments are reported, send the user a final response summarizing each individual comment and whether it was addressed or blocked. Addressed comments still require human acceptance."
 	}
 );
 
@@ -212,7 +212,7 @@ server.registerPrompt(
 				role: "user",
 				content: {
 					type: "text",
-					text: "Use the requestchanges tool to read all open review comments. Claim them, implement each requested change with your normal coding tools, run relevant verification, and report every comment as addressed or blocked. Do not resolve comments; human acceptance happens in the Request Changes extension."
+					text: "Use the requestchanges tool to read all open review comments. Claim them, implement each requested change with your normal coding tools, run relevant verification, and report every comment as addressed or blocked. After reporting all comments, finish with a concise summary of each individual comment and whether it was addressed or blocked. Do not resolve comments; human acceptance happens in the Request Changes extension."
 				}
 			}
 		]

@@ -314,7 +314,11 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 		if (existing instanceof ReviewComment && existing.mode === vscode.CommentMode.Editing) {
 			return;
 		}
-		thread.comments = [new ReviewComment(note, thread)];
+		const comments: vscode.Comment[] = [new ReviewComment(note, thread)];
+		if (note.resolution) {
+			comments.push(new ReviewResolutionComment(note));
+		}
+		thread.comments = comments;
 	}
 
 	private bindThread(noteId: string, thread: vscode.CommentThread): void {
@@ -479,6 +483,23 @@ class ReviewComment implements vscode.Comment {
 	}
 }
 
+class ReviewResolutionComment implements vscode.Comment {
+	body: string;
+	mode = vscode.CommentMode.Preview;
+	author: vscode.CommentAuthorInformation;
+	contextValue = "requestchanges.resolution";
+	label: string;
+	timestamp: Date;
+
+	constructor(note: ReviewNote) {
+		const resolution = note.resolution!;
+		this.body = formatResolutionBody(note);
+		this.author = { name: resolution.client || "Coding agent" };
+		this.label = formatCommentStatus(note.status);
+		this.timestamp = new Date(resolution.updatedAt);
+	}
+}
+
 function commentBody(body: string | vscode.MarkdownString): string {
 	return typeof body === "string" ? body : body.value;
 }
@@ -508,4 +529,19 @@ function formatCommentStatus(status: ReviewNote["status"]): string {
 
 function formatCommentKind(kind: ReviewNote["kind"]): string {
 	return { change: "Change", question: "Question", explain: "Explain", test: "Add test" }[kind];
+}
+
+function formatResolutionBody(note: ReviewNote): string {
+	const resolution = note.resolution;
+	if (!resolution) {
+		return "";
+	}
+	const lines = [resolution.summary ?? resolution.blockedReason ?? formatCommentStatus(note.status)];
+	if (resolution.changedFiles.length > 0) {
+		lines.push(`Changed files: ${resolution.changedFiles.join(", ")}`);
+	}
+	if (resolution.verification) {
+		lines.push(`Verified: ${resolution.verification}`);
+	}
+	return lines.join("\n\n");
 }

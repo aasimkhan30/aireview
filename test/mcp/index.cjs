@@ -76,6 +76,7 @@ async function run() {
 		assert.match(status.content[0].text, /"addressed": 1/);
 		const prompt = await client.getPrompt({ name: "address_review_comments", arguments: {} });
 		assert.match(prompt.messages[0].content.text, /Use the requestchanges tool/);
+		assert.match(prompt.messages[0].content.text, /summary of each individual comment/);
 		const resource = await client.readResource({ uri: "requestchanges://comments/open" });
 		assert.match(resource.contents[0].text, /"commentCount": 0/);
 		console.log("Request Changes MCP smoke test passed");

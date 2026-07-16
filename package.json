@@ -54,7 +54,7 @@
         "name": "requestchanges",
         "displayName": "Request Changes",
         "userDescription": "Read open review comments for agent-written code.",
-        "modelDescription": "Read open review comments and overall instructions from Request Changes. Use only when the user explicitly asks for Request Changes or references #requestchanges.",
+        "modelDescription": "Read open review comments and overall instructions from Request Changes. Use only when the user explicitly asks for Request Changes or references #requestchanges. After addressing comments, summarize each individual comment and whether it was addressed or blocked.",
         "inputSchema": {
           "type": "object",
           "properties": {},
