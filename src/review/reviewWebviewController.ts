@@ -8,7 +8,8 @@ import type { IReviewPanelStateService } from "./reviewPanelStateService";
 import {
 	normalizeEditOpenCommentParams,
 	normalizeReviewCommentIdParams,
-	normalizeSelectedReviewCommentsParams
+	normalizeSelectedReviewCommentsParams,
+	normalizeVersionedReviewCommentParams
 } from "./reviewValidation";
 
 export class ReviewWebviewController extends Disposable {
@@ -18,6 +19,7 @@ export class ReviewWebviewController extends Disposable {
 		private readonly connection: MessageConnection,
 		private readonly stateService: IReviewPanelStateService,
 		private readonly commentService: IReviewCommentService,
+		private readonly openSettings: () => Promise<void>,
 		private readonly isVisible: () => boolean,
 		private readonly diagnostics: IDiagnosticsService
 	) {
@@ -52,6 +54,20 @@ export class ReviewWebviewController extends Disposable {
 			)
 		);
 		this._register(
+			connection.onRequest(ReviewRpc.reattachOpenComment, (params: unknown) =>
+				this.runRequest("comment.reattach", () =>
+					stateService.reattachOpenComment(normalizeVersionedReviewCommentParams(params))
+				)
+			)
+		);
+		this._register(
+			connection.onRequest(ReviewRpc.createUnresolvedFollowUp, (params: unknown) =>
+				this.runRequest("comment.followUp", () =>
+					stateService.createUnresolvedFollowUp(normalizeVersionedReviewCommentParams(params))
+				)
+			)
+		);
+		this._register(
 			connection.onRequest(ReviewRpc.previewComments, (params: unknown) =>
 				this.runRequest("comments.preview", () =>
 					stateService.previewComments(normalizeSelectedReviewCommentsParams(params))
@@ -68,6 +84,11 @@ export class ReviewWebviewController extends Disposable {
 		this._register(
 			connection.onRequest(ReviewRpc.clearResolvedComments, () =>
 				this.runRequest("comments.clearResolved", () => stateService.clearResolvedComments())
+			)
+		);
+		this._register(
+			connection.onRequest(ReviewRpc.openSettings, () =>
+				this.runRequest("settings.open", () => this.openSettings())
 			)
 		);
 		this._register(

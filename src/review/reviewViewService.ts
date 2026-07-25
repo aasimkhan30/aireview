@@ -49,6 +49,9 @@ export class ReviewViewService extends Disposable implements IReviewViewService 
 						connection,
 						stateService,
 						commentService,
+						async () => {
+							await this.commandRegistrationService.executeCommand(RequestChangesCommand.OpenSettings);
+						},
 						() => surface.visible,
 						diagnostics
 					),

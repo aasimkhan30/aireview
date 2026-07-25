@@ -8,7 +8,8 @@ import type {
 	ReviewCommentStatus,
 	ReviewRange,
 	SelectedReviewCommentsParams,
-	UnresolvedReviewCommentReason
+	UnresolvedReviewCommentReason,
+	VersionedReviewCommentParams
 } from "../common/reviewProtocol";
 
 const commentIntents: readonly ReviewCommentIntent[] = ["change", "question", "explain", "test"];
@@ -52,6 +53,20 @@ export function normalizeReviewCommentIdParams(value: unknown): ReviewCommentIdP
 		throw new Error("Review comment id is required");
 	}
 	return { id: (value as ReviewCommentIdParams).id };
+}
+
+export function normalizeVersionedReviewCommentParams(value: unknown): VersionedReviewCommentParams {
+	if (!value || typeof value !== "object") {
+		throw new Error("Expected review comment parameters");
+	}
+	const params = value as Partial<VersionedReviewCommentParams>;
+	if (!isNonEmptyString(params.id)) {
+		throw new Error("Review comment id is required");
+	}
+	if (!isPositiveVersion(params.expectedVersion)) {
+		throw new Error("Expected comment version is required");
+	}
+	return { id: params.id, expectedVersion: params.expectedVersion };
 }
 
 export function normalizeSelectedReviewCommentsParams(value: unknown): SelectedReviewCommentsParams {

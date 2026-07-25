@@ -96,6 +96,43 @@ describe("ReviewStore", () => {
 		).rejects.toThrow("changed");
 	});
 
+	it("reattaches only a current open orphaned comment and increments its version", async () => {
+		const store = createStore(new FakeMemento());
+		await store.addComment(createComment("orphaned"));
+		await expect(
+			store.reattachOpenComment({ id: "orphaned", expectedVersion: 1 }, createAnchor("replacement.ts"))
+		).resolves.toBe(true);
+		expect((await store.getState()).comments[0]).toMatchObject({
+			id: "orphaned",
+			version: 2,
+			anchorState: "attached",
+			anchor: { filePath: "replacement.ts" }
+		});
+		await store.addComment(createComment("stale"));
+		await expect(
+			store.reattachOpenComment({ id: "stale", expectedVersion: 2 }, createAnchor("stale.ts"))
+		).rejects.toThrow("changed");
+	});
+
+	it("creates a follow-up without changing the unresolved original", async () => {
+		const store = createStore(new FakeMemento());
+		const ledger = await ReviewLedger.open(workspaceRoot, dataDirectory);
+		await ledger.read();
+		const unresolved = createTerminalComment("unresolved", "unresolved", "Try this next");
+		await ledger.mutate((state) => ({ ...state, comments: [unresolved] }));
+		const followUp = { ...createComment("follow-up"), body: "Try this next", anchor: createAnchor("source.ts") };
+		await expect(store.createUnresolvedFollowUp({ id: "unresolved", expectedVersion: 1 }, followUp)).resolves.toBe(
+			true
+		);
+		const comments = (await store.getState()).comments;
+		expect(comments).toHaveLength(2);
+		expect(comments[0]).toMatchObject({ id: "follow-up", status: "open", body: "Try this next" });
+		expect(comments[1]).toEqual(unresolved);
+		await expect(
+			store.createUnresolvedFollowUp({ id: "unresolved", expectedVersion: 2 }, createComment("stale"))
+		).rejects.toThrow("changed");
+	});
+
 	it("keeps working and terminal comments immutable while allowing terminal deletion", async () => {
 		const store = createStore(new FakeMemento());
 		const ledger = await ReviewLedger.open(workspaceRoot, dataDirectory);
@@ -280,7 +317,11 @@ function createWorkingComment(id: string, expiresAt = "2026-07-25T08:00:00.000Z"
 	};
 }
 
-function createTerminalComment(id: string, status: "resolved" | "unresolved"): ReviewComment {
+function createTerminalComment(
+	id: string,
+	status: "resolved" | "unresolved",
+	suggestedNewComment?: string
+): ReviewComment {
 	return {
 		...createComment(id),
 		status,
@@ -299,8 +340,21 @@ function createTerminalComment(id: string, status: "resolved" | "unresolved"): R
 						client: "test",
 						reason: "missing_requirement",
 						explanation: "Missing behavior",
+						suggestedNewComment,
 						completedAt: "2026-07-25T08:00:00.000Z",
 						claimToken: `token-${id}`
 					}
+	};
+}
+
+function createAnchor(filePath: string): NonNullable<ReviewComment["anchor"]> {
+	return {
+		uri: `file:///${filePath}`,
+		filePath,
+		range: { startLine: 1, startCharacter: 1, endLine: 1, endCharacter: 5 },
+		selectedText: "code",
+		selectedTextHash: "hash",
+		contextBefore: "",
+		contextAfter: ""
 	};
 }

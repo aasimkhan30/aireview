@@ -7,9 +7,9 @@ Use it when an agent has produced code that is close, but still needs human revi
 ## What you can do
 
 - Leave review comments directly on selected code in VS Code.
-- Track comments in the **Review Comments** sidebar, organized by status and then file.
+- Track ready, in-progress, and attention-needed comments in the **Review** tab.
 - Mark comments as **Change code**, **Answer a question**, **Explain this**, or **Add or update tests**.
-- Select the exact open comments to copy for Codex, Claude Code, GitHub Copilot CLI, or GitHub Copilot in VS Code.
+- Copy all ready comments, or choose an exact subset for Codex, Claude Code, GitHub Copilot CLI, or GitHub Copilot in VS Code.
 - See each agent result as **Resolved** or **Couldn’t resolve**.
 - Keep resolved comments visible until you clear them.
 
@@ -31,13 +31,13 @@ Use it when an agent has produced code that is close, but still needs human revi
 
 6. Open the **Review Comments** view.
 
-    The sidebar organizes comments as Open, Working, Couldn’t resolve, or Resolved, then groups each section by file.
+    The **Review** tab organizes comments as Ready for agent, In progress, or Needs attention. Completed results appear in the **Resolved** tab.
 
 7. Connect your coding agent.
 
-    Run **Request Changes: Open Settings**, or use the gear icon in the **Review Comments** view. Install the integration for the agent you want to use at Workspace or User scope when an install option is shown.
+    Run **Request Changes: Open Settings**, or choose **Settings** from the workspace overflow menu in the **Review Comments** view. Install the integration for the agent you want to use at Workspace or User scope when an install option is shown.
 
-8. Select the open comments you want processed, copy them for your agent, and ask the agent to use Request Changes.
+8. Copy all ready comments, or use **Choose** to select a subset, then ask your agent to use Request Changes.
 
     Request Changes is explicit: agents only read comments when you ask them to use Request Changes or `#requestchanges`.
 
@@ -53,7 +53,7 @@ Use it when an agent has produced code that is close, but still needs human revi
 
 ### Review agent-written code at a glance
 
-Comments are organized by status and then file. Only open comments can be selected; working comments are temporarily immutable, and terminal comments show the agent’s result.
+Ready comments can be copied together or narrowed with **Choose**. In-progress comments remain immutable, while unresolved comments and lost code anchors appear under **Needs attention**.
 
 ![Request Changes sidebar with review comments grouped by file and status](docs/images/review-comments-overview.png)
 
@@ -65,7 +65,7 @@ Native VS Code comment threads keep each request or question beside the exact co
 
 ### Keep completed results until you clear them
 
-Resolved comments remain visible in the editor and in a dedicated sidebar section until you decide to clear them.
+Resolved comments remain visible in the editor and in a dedicated sidebar tab until you decide to clear them. Expand a result to inspect changed files, verification, and limitations.
 
 ![VS Code editor showing a resolved Request Changes comment attached to TypeScript code](docs/images/resolved-editor-comment.png)
 
@@ -79,7 +79,7 @@ Use the settings panel to configure instructions and connect Request Changes to 
 
 ## Using Request Changes with agents
 
-Open **Request Changes: Open Settings** from the Command Palette, or use the gear icon in the **Review Comments** view. The settings panel shows the integrations Request Changes can manage, where each integration is installed, and example prompts for using it.
+Open **Request Changes: Open Settings** from the Command Palette, or choose **Settings** from the workspace overflow menu in the **Review Comments** view. The settings panel shows the integrations Request Changes can manage, where each integration is installed, and example prompts for using it.
 
 You can add default instructions in settings. For example, tell agents to run a specific test command, preserve a public API, or document verification limitations.
 

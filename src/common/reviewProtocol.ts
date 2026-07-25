@@ -11,6 +11,12 @@ export const ReviewRpc = {
 		"requestchanges.review.deleteComment"
 	),
 	revealComment: new RequestType<ReviewCommentIdParams, void, void>("requestchanges.review.revealComment"),
+	reattachOpenComment: new RequestType<VersionedReviewCommentParams, ReviewPanelStateEnvelope, void>(
+		"requestchanges.review.reattachOpenComment"
+	),
+	createUnresolvedFollowUp: new RequestType<VersionedReviewCommentParams, ReviewPanelStateEnvelope, void>(
+		"requestchanges.review.createUnresolvedFollowUp"
+	),
 	previewComments: new RequestType<SelectedReviewCommentsParams, ReviewCommentsPreview, void>(
 		"requestchanges.review.previewComments"
 	),
@@ -20,6 +26,7 @@ export const ReviewRpc = {
 	clearResolvedComments: new RequestType0<ClearResolvedCommentsResult, void>(
 		"requestchanges.review.clearResolvedComments"
 	),
+	openSettings: new RequestType0<void, void>("requestchanges.review.openSettings"),
 	stateChanged: new NotificationType<ReviewPanelStateEnvelope>("requestchanges.review.stateChanged")
 } as const;
 
@@ -133,6 +140,10 @@ export interface EditOpenCommentParams {
 
 export interface ReviewCommentIdParams {
 	readonly id: string;
+}
+
+export interface VersionedReviewCommentParams extends ReviewCommentIdParams {
+	readonly expectedVersion: number;
 }
 
 export interface SelectedReviewCommentsParams {

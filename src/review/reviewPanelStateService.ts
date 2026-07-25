@@ -15,6 +15,7 @@ import type {
 	ReviewPanelStateEnvelope,
 	ReviewRange,
 	SelectedReviewCommentsParams,
+	VersionedReviewCommentParams,
 	WorkspaceSnapshot
 } from "../common/reviewProtocol";
 import { Emitter, type Event } from "../common/emitter";
@@ -22,6 +23,7 @@ import { IDiagnosticsService } from "../diagnostics/diagnosticsService";
 import { ICommandRegistrationService } from "../services/commandRegistrationService";
 import { createServiceIdentifier } from "../util/di";
 import { Disposable } from "../util/vs/base/common/lifecycle";
+import { createReviewAnchor } from "./reviewAnchors";
 import { buildReviewCommentsMarkdown, createReviewCommentRequests } from "./reviewBundle";
 import { selectOpenReviewComments } from "./reviewSelection";
 import { IReviewStore } from "./reviewStore";
@@ -36,6 +38,8 @@ export interface IReviewPanelStateService {
 	refresh(): Promise<ReviewPanelStateEnvelope>;
 	addComment(input: AddReviewCommentParams): Promise<ReviewPanelStateEnvelope>;
 	editOpenComment(input: EditOpenCommentParams): Promise<ReviewPanelStateEnvelope>;
+	reattachOpenComment(input: VersionedReviewCommentParams): Promise<ReviewPanelStateEnvelope>;
+	createUnresolvedFollowUp(input: VersionedReviewCommentParams): Promise<ReviewPanelStateEnvelope>;
 	updateCommentAnchor(id: string, anchor: ReviewAnchor, anchorState: ReviewAnchorState): Promise<void>;
 	deleteComment(id: string): Promise<ReviewPanelStateEnvelope>;
 	clearResolvedComments(): Promise<ClearResolvedCommentsResult>;
@@ -126,18 +130,7 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 
 	async addComment(input: AddReviewCommentParams): Promise<ReviewPanelStateEnvelope> {
 		const operation = this.diagnostics.startOperation("reviewState", "comment.add");
-		const now = new Date().toISOString();
-		const comment: ReviewComment = {
-			id: input.id ?? randomUUID(),
-			version: 1,
-			body: input.body.trim(),
-			intent: input.intent ?? "change",
-			status: "open",
-			anchor: input.anchor,
-			anchorState: input.anchor ? "attached" : "orphaned",
-			createdAt: now,
-			updatedAt: now
-		};
+		const comment = createOpenReviewComment(input);
 		try {
 			await this.reviewStore.addComment(comment);
 			const state = await this.refresh();
@@ -158,6 +151,64 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 			throw new Error("Review comment not found");
 		}
 		return this.refresh();
+	}
+
+	async reattachOpenComment(input: VersionedReviewCommentParams): Promise<ReviewPanelStateEnvelope> {
+		const operation = this.diagnostics.startOperation("reviewState", "comment.reattach");
+		try {
+			const anchor = this.createAnchorFromActiveSelection();
+			const updated = await this.reviewStore.reattachOpenComment(input, anchor);
+			if (!updated) {
+				throw new Error("Review comment not found");
+			}
+			const state = await this.refresh();
+			operation.complete(() => ({ commentId: input.id, revision: state.revision }));
+			return state;
+		} catch (error) {
+			operation.fail(error, () => ({ commentId: input.id }));
+			throw error;
+		}
+	}
+
+	async createUnresolvedFollowUp(input: VersionedReviewCommentParams): Promise<ReviewPanelStateEnvelope> {
+		const operation = this.diagnostics.startOperation("reviewState", "comment.followUp");
+		try {
+			const persisted = await this.reviewStore.getState();
+			const original = persisted.comments.find((comment) => comment.id === input.id);
+			if (!original) {
+				throw new Error("Review comment not found");
+			}
+			if (
+				original.status !== "unresolved" ||
+				original.result?.outcome !== "unresolved" ||
+				!original.result.suggestedNewComment?.trim()
+			) {
+				throw new Error("This unresolved comment does not have a suggested follow-up");
+			}
+			const anchor =
+				original.anchor && original.anchorState !== "orphaned"
+					? original.anchor
+					: this.createAnchorFromActiveSelection();
+			const followUp = createOpenReviewComment({
+				body: original.result.suggestedNewComment,
+				intent: original.intent,
+				anchor
+			});
+			const created = await this.reviewStore.createUnresolvedFollowUp(input, followUp);
+			if (!created) {
+				throw new Error("Review comment not found");
+			}
+			const state = await this.refresh();
+			operation.complete(() => ({
+				commentId: input.id,
+				followUpId: followUp.id,
+				revision: state.revision
+			}));
+			return state;
+		} catch (error) {
+			operation.fail(error, () => ({ commentId: input.id }));
+			throw error;
+		}
 	}
 
 	async updateCommentAnchor(id: string, anchor: ReviewAnchor, anchorState: ReviewAnchorState): Promise<void> {
@@ -308,6 +359,35 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 			selection: editor.selection.isEmpty ? undefined : toReviewRange(editor.selection)
 		};
 	}
+
+	private createAnchorFromActiveSelection(): ReviewAnchor {
+		this.captureActiveTextEditor();
+		const editor = this.lastTextEditor;
+		if (!editor || editor.selection.isEmpty) {
+			throw new Error("Select replacement code in an editor first");
+		}
+		return createReviewAnchor(
+			editor.document.getText(),
+			editor.document.uri.toString(),
+			vscode.workspace.asRelativePath(editor.document.uri, false),
+			toReviewRange(editor.selection)
+		);
+	}
+}
+
+function createOpenReviewComment(input: AddReviewCommentParams): ReviewComment {
+	const now = new Date().toISOString();
+	return {
+		id: input.id ?? randomUUID(),
+		version: 1,
+		body: input.body.trim(),
+		intent: input.intent ?? "change",
+		status: "open",
+		anchor: input.anchor,
+		anchorState: input.anchor ? "attached" : "orphaned",
+		createdAt: now,
+		updatedAt: now
+	};
 }
 
 export function toReviewRange(range: vscode.Range): ReviewRange {

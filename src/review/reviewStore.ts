@@ -1,4 +1,10 @@
-import type { EditOpenCommentParams, ReviewAnchor, ReviewAnchorState, ReviewComment } from "../common/reviewProtocol";
+import type {
+	EditOpenCommentParams,
+	ReviewAnchor,
+	ReviewAnchorState,
+	ReviewComment,
+	VersionedReviewCommentParams
+} from "../common/reviewProtocol";
 import { Emitter, type Event } from "../common/emitter";
 import { IDiagnosticsService } from "../diagnostics/diagnosticsService";
 import { IExtensionContextService } from "../services/extensionContextService";
@@ -25,6 +31,8 @@ export interface IReviewStore {
 	getLocation(): Promise<ReviewLedgerLocation>;
 	addComment(comment: ReviewComment): Promise<void>;
 	editOpenComment(input: EditOpenCommentParams): Promise<boolean>;
+	reattachOpenComment(input: VersionedReviewCommentParams, anchor: ReviewAnchor): Promise<boolean>;
+	createUnresolvedFollowUp(input: VersionedReviewCommentParams, comment: ReviewComment): Promise<boolean>;
 	updateCommentAnchor(id: string, anchor: ReviewAnchor, anchorState: ReviewAnchorState): Promise<boolean>;
 	deleteComment(id: string): Promise<boolean>;
 	clearResolvedComments(): Promise<number>;
@@ -111,6 +119,54 @@ export class ReviewStore extends Disposable implements IReviewStore {
 				updatedAt: new Date().toISOString()
 			};
 			return { state: { ...current, comments }, result: true };
+		});
+	}
+
+	reattachOpenComment(input: VersionedReviewCommentParams, anchor: ReviewAnchor): Promise<boolean> {
+		return this.enqueueMutationWithResult((current) => {
+			const index = current.comments.findIndex((candidate) => candidate.id === input.id);
+			if (index < 0) {
+				return { state: current, result: false };
+			}
+			const comment = current.comments[index];
+			if (comment.status !== "open" || comment.anchorState !== "orphaned") {
+				throw new Error("Only open comments needing reattachment can be reattached");
+			}
+			if (comment.version !== input.expectedVersion) {
+				throw new Error("This review comment changed; refresh and try again");
+			}
+			const comments = [...current.comments];
+			comments[index] = {
+				...comment,
+				version: comment.version + 1,
+				anchor,
+				anchorState: "attached",
+				updatedAt: new Date().toISOString()
+			};
+			return { state: { ...current, comments }, result: true };
+		});
+	}
+
+	createUnresolvedFollowUp(input: VersionedReviewCommentParams, comment: ReviewComment): Promise<boolean> {
+		return this.enqueueMutationWithResult((current) => {
+			const original = current.comments.find((candidate) => candidate.id === input.id);
+			if (!original) {
+				return { state: current, result: false };
+			}
+			if (
+				original.status !== "unresolved" ||
+				original.result?.outcome !== "unresolved" ||
+				!original.result.suggestedNewComment?.trim()
+			) {
+				throw new Error("This unresolved comment does not have a suggested follow-up");
+			}
+			if (original.version !== input.expectedVersion) {
+				throw new Error("This review comment changed; refresh and try again");
+			}
+			return {
+				state: { ...current, comments: [comment, ...current.comments] },
+				result: true
+			};
 		});
 	}
 

@@ -1,39 +1,38 @@
 import * as React from "react";
 import {
 	Check,
+	CheckCircle2,
 	ChevronRight,
 	Copy,
-	Eye,
-	FileText,
 	MessageSquare,
-	MessageSquarePlus,
 	Pencil,
 	RefreshCw,
-	Trash2,
-	X
+	Settings,
+	Trash2
 } from "lucide-react";
 import type { MessageConnection } from "vscode-jsonrpc/browser";
 import {
+	ReviewRpc,
 	reviewIntentPresentation,
-	reviewStatusPresentation,
 	type ReviewComment,
 	type ReviewCommentIntent,
 	type ReviewCommentsPreview,
 	type ReviewPanelStateEnvelope
 } from "../../common/reviewProtocol";
-import { ReviewRpc } from "../../common/reviewProtocol";
 import { shouldAcceptStateEnvelope } from "../../common/webviewProtocol";
-import { reconcileSelectedCommentIds } from "../../review/reviewSelection";
 import { usePersistedWebviewState } from "../usePersistedWebviewState";
 import type { WebviewDiagnostics } from "../webviewDiagnostics";
-import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { Textarea } from "./components/ui/textarea";
+import { getCopyCommentIds, groupReviewComments } from "./reviewViewModel";
 
 export interface AppProps {
 	readonly connection: MessageConnection;
 	readonly diagnostics: WebviewDiagnostics;
 }
+
+type ActiveView = "review" | "resolved";
+type MessageTone = "info" | "error";
 
 type RemoteReviewState =
 	| { readonly status: "loading" }
@@ -52,24 +51,35 @@ interface EditingComment {
 }
 
 interface ReviewWebviewState {
-	readonly showResolved: boolean;
-	readonly selectedCommentIds: readonly string[];
-	readonly selectionInitialized: boolean;
+	readonly activeView: ActiveView;
+}
+
+interface StatusMessage {
+	readonly text: string;
+	readonly tone: MessageTone;
+}
+
+interface PreviewState extends ReviewCommentsPreview {
+	readonly comments: readonly ReviewComment[];
 }
 
 export function App({ connection, diagnostics }: AppProps) {
 	const [remoteState, dispatchRemoteState] = React.useReducer(reduceRemoteReviewState, {
 		status: "loading"
 	});
-	const [editing, setEditing] = React.useState<EditingComment>();
-	const [preview, setPreview] = React.useState<ReviewCommentsPreview>();
-	const [busy, setBusy] = React.useState<string>();
-	const [message, setMessage] = React.useState<string>();
-	const [confirmClearResolved, setConfirmClearResolved] = React.useState(false);
 	const [webviewState, setWebviewState] = usePersistedWebviewState(normalizeWebviewState);
-	const knownOpenIds = React.useRef<Set<string> | undefined>(undefined);
+	const [selectionMode, setSelectionMode] = React.useState(false);
+	const [selectedIds, setSelectedIds] = React.useState<readonly string[]>([]);
+	const [editing, setEditing] = React.useState<EditingComment>();
+	const [expandedBodies, setExpandedBodies] = React.useState<readonly string[]>([]);
+	const [expandedResolved, setExpandedResolved] = React.useState<readonly string[]>([]);
+	const [preview, setPreview] = React.useState<PreviewState>();
+	const [showRawPreview, setShowRawPreview] = React.useState(false);
+	const [busy, setBusy] = React.useState<string>();
+	const [message, setMessage] = React.useState<StatusMessage>();
+	const [confirmClearResolved, setConfirmClearResolved] = React.useState(false);
+	const messageTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const previewRef = React.useRef<HTMLElement>(null);
-	const previewButtonRef = React.useRef<HTMLButtonElement>(null);
 
 	React.useEffect(() => {
 		let disposed = false;
@@ -100,57 +110,55 @@ export function App({ connection, diagnostics }: AppProps) {
 		};
 	}, [connection, diagnostics]);
 
+	React.useEffect(
+		() => () => {
+			if (messageTimer.current) {
+				clearTimeout(messageTimer.current);
+			}
+		},
+		[]
+	);
+
+	const state = remoteState.status === "ready" ? remoteState.envelope.value : undefined;
+	const groups = React.useMemo(() => groupReviewComments(state?.comments ?? []), [state?.comments]);
+	const copyIds = React.useMemo(
+		() => getCopyCommentIds(groups.ready, selectionMode, selectedIds),
+		[groups.ready, selectedIds, selectionMode]
+	);
+
 	React.useEffect(() => {
 		if (preview) {
 			previewRef.current?.focus();
 		}
 	}, [preview]);
 
-	const state = remoteState.status === "ready" ? remoteState.envelope.value : undefined;
-	const openComments = React.useMemo(
-		() => (state?.comments ?? []).filter((comment) => comment.status === "open"),
-		[state?.comments]
-	);
-	const workingComments = React.useMemo(
-		() => (state?.comments ?? []).filter((comment) => comment.status === "in_progress"),
-		[state?.comments]
-	);
-	const unresolvedComments = React.useMemo(
-		() => (state?.comments ?? []).filter((comment) => comment.status === "unresolved"),
-		[state?.comments]
-	);
-	const resolvedComments = React.useMemo(
-		() => (state?.comments ?? []).filter((comment) => comment.status === "resolved"),
-		[state?.comments]
-	);
-	const selectedIds = React.useMemo(
-		() => new Set(webviewState.selectedCommentIds),
-		[webviewState.selectedCommentIds]
-	);
-	const selectedOpenIds = openComments.filter((comment) => selectedIds.has(comment.id)).map((comment) => comment.id);
-
 	React.useEffect(() => {
-		if (!state) {
-			return;
-		}
-		const currentOpenIds = new Set(
-			state.comments.filter((comment) => comment.status === "open").map((comment) => comment.id)
-		);
-		setWebviewState((current) => {
-			const previousOpenIds = knownOpenIds.current;
-			const selectedCommentIds = reconcileSelectedCommentIds(
-				current.selectedCommentIds,
-				[...currentOpenIds],
-				previousOpenIds,
-				current.selectionInitialized
-			);
-			if (current.selectionInitialized && arraysEqual(selectedCommentIds, current.selectedCommentIds)) {
-				return current;
+		function handleEscape(event: KeyboardEvent): void {
+			if (event.key !== "Escape") {
+				return;
 			}
-			return { ...current, selectionInitialized: true, selectedCommentIds };
-		});
-		knownOpenIds.current = currentOpenIds;
-	}, [setWebviewState, state]);
+			if (confirmClearResolved) {
+				setConfirmClearResolved(false);
+			} else if (preview) {
+				closePreview();
+			} else if (selectionMode) {
+				cancelSelection();
+			} else {
+				return;
+			}
+			event.preventDefault();
+		}
+		window.addEventListener("keydown", handleEscape);
+		return () => window.removeEventListener("keydown", handleEscape);
+	});
+
+	function flashMessage(text: string, tone: MessageTone = "info"): void {
+		if (messageTimer.current) {
+			clearTimeout(messageTimer.current);
+		}
+		setMessage({ text, tone });
+		messageTimer.current = setTimeout(() => setMessage(undefined), 3_000);
+	}
 
 	async function runOperation<T>(
 		name: Parameters<WebviewDiagnostics["startOperation"]>[0],
@@ -158,7 +166,6 @@ export function App({ connection, diagnostics }: AppProps) {
 		onSuccess?: (result: T) => void
 	): Promise<T | undefined> {
 		setBusy(name);
-		setMessage(undefined);
 		const operation = diagnostics.startOperation(name);
 		try {
 			const result = await request();
@@ -167,7 +174,7 @@ export function App({ connection, diagnostics }: AppProps) {
 			return result;
 		} catch (error) {
 			operation.fail(error);
-			setMessage(getErrorMessage(error));
+			flashMessage(getErrorMessage(error), "error");
 			return undefined;
 		} finally {
 			setBusy(undefined);
@@ -175,7 +182,18 @@ export function App({ connection, diagnostics }: AppProps) {
 	}
 
 	async function refresh(): Promise<void> {
-		await runOperation("state.refresh", () => connection.sendRequest(ReviewRpc.getState), receiveState);
+		await runOperation(
+			"state.refresh",
+			() => connection.sendRequest(ReviewRpc.getState),
+			(envelope) => {
+				receiveState(envelope);
+				flashMessage("Review comments refreshed.");
+			}
+		);
+	}
+
+	async function openSettings(): Promise<void> {
+		await runOperation("settings.open", () => connection.sendRequest(ReviewRpc.openSettings));
 	}
 
 	async function revealComment(id: string): Promise<void> {
@@ -186,7 +204,9 @@ export function App({ connection, diagnostics }: AppProps) {
 		await runOperation(
 			"comment.delete",
 			() => connection.sendRequest(ReviewRpc.deleteComment, { id }),
-			receiveState
+			(envelope) => {
+				receiveState(envelope);
+			}
 		);
 	}
 
@@ -203,9 +223,40 @@ export function App({ connection, diagnostics }: AppProps) {
 					body: editing.body,
 					intent: editing.intent
 				}),
-			(result) => {
-				receiveState(result);
+			(envelope) => {
+				receiveState(envelope);
 				setEditing(undefined);
+				flashMessage("Comment updated.");
+			}
+		);
+	}
+
+	async function reattachComment(comment: ReviewComment): Promise<void> {
+		await runOperation(
+			"comment.reattach",
+			() =>
+				connection.sendRequest(ReviewRpc.reattachOpenComment, {
+					id: comment.id,
+					expectedVersion: comment.version
+				}),
+			(envelope) => {
+				receiveState(envelope);
+				flashMessage("Comment reattached.");
+			}
+		);
+	}
+
+	async function createFollowUp(comment: ReviewComment): Promise<void> {
+		await runOperation(
+			"comment.followUp",
+			() =>
+				connection.sendRequest(ReviewRpc.createUnresolvedFollowUp, {
+					id: comment.id,
+					expectedVersion: comment.version
+				}),
+			(envelope) => {
+				receiveState(envelope);
+				flashMessage("Created a new ready comment.");
 			}
 		);
 	}
@@ -217,8 +268,7 @@ export function App({ connection, diagnostics }: AppProps) {
 			(result) => {
 				receiveState(result.state);
 				setConfirmClearResolved(false);
-				setWebviewState((current) => ({ ...current, showResolved: false }));
-				setMessage(
+				flashMessage(
 					`Cleared ${result.clearedCount} resolved ${result.clearedCount === 1 ? "comment" : "comments"}.`
 				);
 			}
@@ -226,514 +276,963 @@ export function App({ connection, diagnostics }: AppProps) {
 	}
 
 	async function previewComments(): Promise<void> {
+		if (copyIds.length === 0) {
+			return;
+		}
+		const comments = copyIds
+			.map((id) => groups.ready.find((comment) => comment.id === id))
+			.filter((comment): comment is ReviewComment => Boolean(comment));
 		await runOperation(
 			"comments.preview",
-			() =>
-				connection.sendRequest(ReviewRpc.previewComments, {
-					commentIds: selectedOpenIds
-				}),
-			setPreview
+			() => connection.sendRequest(ReviewRpc.previewComments, { commentIds: copyIds }),
+			(result) => {
+				setShowRawPreview(false);
+				setPreview({ ...result, comments });
+			}
 		);
 	}
 
-	async function copyComments(): Promise<void> {
-		await runOperation("comments.copy", () =>
-			connection.sendRequest(ReviewRpc.copyComments, { commentIds: selectedOpenIds }).then((result) => {
-				setMessage(result.message);
-				return result;
-			})
+	async function copyComments(commentIds: readonly string[], closeAfterCopy = false): Promise<void> {
+		if (commentIds.length === 0) {
+			return;
+		}
+		await runOperation(
+			"comments.copy",
+			() => connection.sendRequest(ReviewRpc.copyComments, { commentIds }),
+			(result) => {
+				flashMessage(result.message);
+				setSelectionMode(false);
+				setSelectedIds([]);
+				if (closeAfterCopy) {
+					setPreview(undefined);
+				}
+			}
 		);
+	}
+
+	function enterSelection(): void {
+		setSelectedIds(groups.ready.map((comment) => comment.id));
+		setSelectionMode(true);
+	}
+
+	function cancelSelection(): void {
+		setSelectionMode(false);
+		setSelectedIds([]);
 	}
 
 	function toggleSelection(id: string): void {
-		setWebviewState((current) => ({
-			...current,
-			selectedCommentIds: current.selectedCommentIds.includes(id)
-				? current.selectedCommentIds.filter((candidate) => candidate !== id)
-				: [...current.selectedCommentIds, id]
-		}));
+		setSelectedIds((current) =>
+			current.includes(id) ? current.filter((candidate) => candidate !== id) : [...current, id]
+		);
 	}
 
 	function closePreview(): void {
 		setPreview(undefined);
-		requestAnimationFrame(() => previewButtonRef.current?.focus());
+		setShowRawPreview(false);
 	}
 
 	function receiveState(envelope: ReviewPanelStateEnvelope): void {
 		dispatchRemoteState({ type: "received", envelope });
 	}
 
+	function setActiveView(activeView: ActiveView): void {
+		setWebviewState({ activeView });
+	}
+
 	return (
 		<main className="app-shell" aria-busy={Boolean(busy)}>
-			<header className="review-header">
-				<div className="review-header__identity">
-					<MessageSquare aria-hidden="true" size={17} />
-					<div>
-						<h1>Review comments</h1>
-						<div className="review-header__meta">
-							{state?.workspace.name ?? "Loading"}
-							{state?.workspace.branch ? ` · ${state.workspace.branch}` : ""}
-						</div>
-					</div>
+			<h1 className="sr-only">Review comments</h1>
+
+			<header className="workspace-header">
+				<div className="workspace-header__identity" title={state?.workspace.uri}>
+					<strong>{state?.workspace.name ?? "Loading"}</strong>
+					{state?.workspace.branch ? <span>· {state.workspace.branch}</span> : undefined}
 				</div>
-				<div className="review-header__actions">
-					<Badge aria-label={`${openComments.length} open review comments`}>{openComments.length}</Badge>
-					<Button
-						ref={previewButtonRef}
-						variant="ghost"
-						size="icon"
-						aria-label="Preview selected comments"
-						title="Preview selected comments"
-						onClick={() => void previewComments()}
-						disabled={selectedOpenIds.length === 0 || Boolean(busy)}
-					>
-						<Eye aria-hidden="true" size={15} />
-					</Button>
+				<div className="workspace-header__actions">
 					<Button
 						variant="ghost"
 						size="icon"
 						aria-label="Refresh review comments"
-						title="Refresh review comments"
-						onClick={() => void refresh()}
+						title="Refresh"
 						disabled={Boolean(busy)}
+						onClick={() => void refresh()}
 					>
-						<RefreshCw aria-hidden="true" size={15} />
+						<RefreshCw aria-hidden="true" size={14} />
+					</Button>
+					<Button
+						variant="ghost"
+						size="icon"
+						aria-label="Open Request Changes settings"
+						title="Settings"
+						disabled={Boolean(busy)}
+						onClick={() => void openSettings()}
+					>
+						<Settings aria-hidden="true" size={14} />
 					</Button>
 				</div>
 			</header>
 
+			<nav className="review-tabs" aria-label="Review comment views">
+				<Tab
+					active={webviewState.activeView === "review"}
+					label="Review"
+					count={groups.reviewCount}
+					onClick={() => setActiveView("review")}
+				/>
+				<Tab
+					active={webviewState.activeView === "resolved"}
+					label="Resolved"
+					count={groups.resolved.length}
+					onClick={() => setActiveView("resolved")}
+				/>
+			</nav>
+
 			{remoteState.status === "error" ? (
-				<div className="message message--error" role="alert">
+				<div className="status-message status-message--error" role="alert">
 					Unable to load review state: {remoteState.message}
 				</div>
 			) : undefined}
 			{message ? (
-				<div className="message" role="status" aria-live="polite">
-					{message}
+				<div
+					className={`status-message status-message--${message.tone}`}
+					role={message.tone === "error" ? "alert" : "status"}
+					aria-live="polite"
+				>
+					{message.text}
 				</div>
 			) : undefined}
 
-			<div className="review-sections">
-				<StatusSection
-					title="Open"
-					comments={openComments}
-					toolbar={
-						openComments.length ? (
-							<Button
-								variant="ghost"
-								size="sm"
-								onClick={() =>
-									setWebviewState((current) => ({
-										...current,
-										selectedCommentIds:
-											selectedOpenIds.length === openComments.length
-												? []
-												: openComments.map((comment) => comment.id)
-									}))
-								}
-							>
-								{selectedOpenIds.length === openComments.length ? "Clear selection" : "Select all"}
-							</Button>
-						) : undefined
-					}
-					empty={
-						state ? (
-							<div className="empty-state">
-								<MessageSquarePlus className="empty-state__icon" aria-hidden="true" size={28} />
-								<strong>No open review comments</strong>
-								<span>Select code and add a review comment.</span>
-							</div>
-						) : undefined
-					}
-				>
-					<CommentGroups
-						comments={openComments}
-						editing={editing}
+			<div className="view-scroll">
+				{webviewState.activeView === "review" ? (
+					<ReviewView
+						groups={groups}
+						selectionMode={selectionMode}
 						selectedIds={selectedIds}
+						editing={editing}
+						expandedBodies={expandedBodies}
+						busy={Boolean(busy)}
+						onEnterSelection={enterSelection}
+						onCancelSelection={cancelSelection}
+						onSelectAll={() => setSelectedIds(groups.ready.map((comment) => comment.id))}
 						onToggleSelection={toggleSelection}
-						setEditing={setEditing}
-						onSave={() => void saveComment()}
+						onEdit={setEditing}
+						onChangeEdit={(body) => setEditing((current) => (current ? { ...current, body } : current))}
+						onChangeEditIntent={(intent) =>
+							setEditing((current) => (current ? { ...current, intent } : current))
+						}
+						onCancelEdit={() => setEditing(undefined)}
+						onSaveEdit={() => void saveComment()}
+						onToggleBody={(id) => setExpandedBodies((current) => toggleId(current, id))}
 						onReveal={(id) => void revealComment(id)}
 						onDelete={(id) => void deleteComment(id)}
+						onReattach={(comment) => void reattachComment(comment)}
+						onCreateFollowUp={(comment) => void createFollowUp(comment)}
+						onViewResolved={() => setActiveView("resolved")}
 					/>
-					{openComments.length ? (
-						<div className="primary-copy-action">
-							<Button
-								onClick={() => void copyComments()}
-								disabled={selectedOpenIds.length === 0 || Boolean(busy)}
-							>
-								<Copy aria-hidden="true" size={14} /> Copy {selectedOpenIds.length}{" "}
-								{selectedOpenIds.length === 1 ? "comment" : "comments"} for AI
-							</Button>
-						</div>
-					) : undefined}
-				</StatusSection>
-
-				{workingComments.length ? (
-					<StatusSection title="Working" comments={workingComments}>
-						<CommentGroups
-							comments={workingComments}
-							editing={editing}
-							selectedIds={selectedIds}
-							onToggleSelection={toggleSelection}
-							setEditing={setEditing}
-							onSave={() => void saveComment()}
-							onReveal={(id) => void revealComment(id)}
-							onDelete={(id) => void deleteComment(id)}
-						/>
-					</StatusSection>
-				) : undefined}
-
-				{unresolvedComments.length ? (
-					<StatusSection title="Couldn’t resolve" comments={unresolvedComments}>
-						<CommentGroups
-							comments={unresolvedComments}
-							editing={editing}
-							selectedIds={selectedIds}
-							onToggleSelection={toggleSelection}
-							setEditing={setEditing}
-							onSave={() => void saveComment()}
-							onReveal={(id) => void revealComment(id)}
-							onDelete={(id) => void deleteComment(id)}
-						/>
-					</StatusSection>
-				) : undefined}
-
-				{resolvedComments.length ? (
-					<StatusSection
-						title="Resolved"
-						comments={resolvedComments}
-						collapsed={!webviewState.showResolved}
-						onToggleCollapsed={() =>
-							setWebviewState((current) => ({
-								...current,
-								showResolved: !current.showResolved
-							}))
-						}
-						toolbar={
-							<Button
-								variant="ghost"
-								size="sm"
-								onClick={() => setConfirmClearResolved(true)}
-								disabled={Boolean(busy)}
-							>
-								<Trash2 aria-hidden="true" size={13} /> Clear resolved
-							</Button>
-						}
-					>
-						{confirmClearResolved ? (
-							<div className="resolved-confirmation" role="alert">
-								<span>
-									Remove {resolvedComments.length} resolved{" "}
-									{resolvedComments.length === 1 ? "comment" : "comments"} from this workspace?
-									<br />
-									This permanently removes their comments and AI results.
-								</span>
-								<div>
-									<Button variant="ghost" size="sm" onClick={() => setConfirmClearResolved(false)}>
-										Cancel
-									</Button>
-									<Button
-										variant="destructive"
-										size="sm"
-										onClick={() => void clearResolvedComments()}
-									>
-										Clear {resolvedComments.length}
-									</Button>
-								</div>
-							</div>
-						) : undefined}
-						<CommentGroups
-							comments={resolvedComments}
-							editing={editing}
-							selectedIds={selectedIds}
-							onToggleSelection={toggleSelection}
-							setEditing={setEditing}
-							onSave={() => void saveComment()}
-							onReveal={(id) => void revealComment(id)}
-							onDelete={(id) => void deleteComment(id)}
-						/>
-					</StatusSection>
-				) : undefined}
+				) : (
+					<ResolvedView
+						comments={groups.resolved}
+						expandedIds={expandedResolved}
+						busy={Boolean(busy)}
+						onToggle={(id) => setExpandedResolved((current) => toggleId(current, id))}
+						onReveal={(id) => void revealComment(id)}
+						onDelete={(id) => void deleteComment(id)}
+						onClear={() => setConfirmClearResolved(true)}
+					/>
+				)}
 			</div>
 
-			{preview ? (
-				<section
-					className="comments-preview"
-					id="selected-comments-preview"
-					aria-labelledby="selected-comments-preview-title"
-					ref={previewRef}
-					tabIndex={-1}
-					onKeyDown={(event) => {
-						if (event.key === "Escape") {
-							event.preventDefault();
-							closePreview();
-						}
-					}}
-				>
-					<header>
-						<div>
-							<strong id="selected-comments-preview-title">Selected comments preview</strong>
-							<span>
-								{preview.commentCount} comments · {preview.fileCount} files
-								{preview.needsReattachmentCount
-									? ` · ${preview.needsReattachmentCount} need reattachment`
-									: ""}
-							</span>
+			{webviewState.activeView === "review" && groups.ready.length > 0 ? (
+				<footer className="copy-action-bar">
+					<div className="copy-action-bar__content">
+						<span>{selectionMode ? `${copyIds.length} selected` : ""}</span>
+						<div className="copy-action-bar__actions">
+							<LinkButton
+								disabled={copyIds.length === 0 || Boolean(busy)}
+								onClick={() => void previewComments()}
+							>
+								Preview
+							</LinkButton>
+							<Button
+								size="sm"
+								disabled={copyIds.length === 0 || Boolean(busy)}
+								onClick={() => void copyComments(copyIds)}
+							>
+								<Copy aria-hidden="true" size={13} />
+								{selectionMode ? `Copy ${copyIds.length}` : `Copy all ${groups.ready.length}`}
+							</Button>
 						</div>
-						<Button variant="ghost" size="icon" aria-label="Close preview" onClick={closePreview}>
-							<X aria-hidden="true" size={14} />
-						</Button>
-					</header>
-					<pre aria-label="Selected comments contents" tabIndex={0}>
-						{preview.markdown}
-					</pre>
-				</section>
+					</div>
+				</footer>
+			) : undefined}
+
+			{preview ? (
+				<PreviewOverlay
+					preview={preview}
+					showRaw={showRawPreview}
+					busy={Boolean(busy)}
+					overlayRef={previewRef}
+					onBack={closePreview}
+					onToggleRaw={() => setShowRawPreview((current) => !current)}
+					onCopy={() =>
+						void copyComments(
+							preview.comments.map((comment) => comment.id),
+							true
+						)
+					}
+				/>
+			) : undefined}
+
+			{confirmClearResolved ? (
+				<ConfirmationOverlay
+					count={groups.resolved.length}
+					busy={Boolean(busy)}
+					onCancel={() => setConfirmClearResolved(false)}
+					onConfirm={() => void clearResolvedComments()}
+				/>
 			) : undefined}
 		</main>
 	);
 }
 
-interface StatusSectionProps {
-	readonly title: string;
-	readonly comments: readonly ReviewComment[];
-	readonly toolbar?: React.ReactNode;
-	readonly empty?: React.ReactNode;
-	readonly collapsed?: boolean;
-	readonly onToggleCollapsed?: () => void;
-	readonly children?: React.ReactNode;
+interface ReviewViewProps {
+	readonly groups: ReturnType<typeof groupReviewComments>;
+	readonly selectionMode: boolean;
+	readonly selectedIds: readonly string[];
+	readonly editing: EditingComment | undefined;
+	readonly expandedBodies: readonly string[];
+	readonly busy: boolean;
+	readonly onEnterSelection: () => void;
+	readonly onCancelSelection: () => void;
+	readonly onSelectAll: () => void;
+	readonly onToggleSelection: (id: string) => void;
+	readonly onEdit: (editing: EditingComment) => void;
+	readonly onChangeEdit: (body: string) => void;
+	readonly onChangeEditIntent: (intent: ReviewCommentIntent) => void;
+	readonly onCancelEdit: () => void;
+	readonly onSaveEdit: () => void;
+	readonly onToggleBody: (id: string) => void;
+	readonly onReveal: (id: string) => void;
+	readonly onDelete: (id: string) => void;
+	readonly onReattach: (comment: ReviewComment) => void;
+	readonly onCreateFollowUp: (comment: ReviewComment) => void;
+	readonly onViewResolved: () => void;
 }
 
-function StatusSection({
-	title,
-	comments,
-	toolbar,
-	empty,
-	collapsed = false,
-	onToggleCollapsed,
-	children
-}: StatusSectionProps) {
+function ReviewView({
+	groups,
+	selectionMode,
+	selectedIds,
+	editing,
+	expandedBodies,
+	busy,
+	onEnterSelection,
+	onCancelSelection,
+	onSelectAll,
+	onToggleSelection,
+	onEdit,
+	onChangeEdit,
+	onChangeEditIntent,
+	onCancelEdit,
+	onSaveEdit,
+	onToggleBody,
+	onReveal,
+	onDelete,
+	onReattach,
+	onCreateFollowUp,
+	onViewResolved
+}: ReviewViewProps) {
+	if (groups.reviewCount === 0) {
+		return (
+			<EmptyState
+				icon={<MessageSquare aria-hidden="true" size={25} />}
+				title="No active review comments"
+				body={
+					groups.resolved.length
+						? "All current comments are resolved."
+						: "Select code and add a review comment to get started."
+				}
+				action={groups.resolved.length ? { label: "View resolved", onClick: onViewResolved } : undefined}
+			/>
+		);
+	}
+
 	return (
-		<section className="status-section" aria-label={`${title} review comments`}>
-			<header className="status-section__header">
-				{onToggleCollapsed ? (
-					<Button
-						variant="ghost"
-						size="sm"
-						className="status-section__toggle"
-						aria-expanded={!collapsed}
-						onClick={onToggleCollapsed}
-					>
-						<ChevronRight
-							className={!collapsed ? "status-section__chevron--expanded" : undefined}
-							aria-hidden="true"
-							size={14}
-						/>
-						{title.toUpperCase()} · {comments.length}
+		<div className="review-content">
+			{groups.ready.length ? (
+				<Section
+					title="Ready for agent"
+					count={groups.ready.length}
+					toolbar={
+						selectionMode ? (
+							<div className="section-links">
+								<LinkButton onClick={onSelectAll}>Select all</LinkButton>
+								<LinkButton onClick={onCancelSelection}>Cancel</LinkButton>
+							</div>
+						) : (
+							<LinkButton onClick={onEnterSelection}>Choose</LinkButton>
+						)
+					}
+				>
+					{groups.ready.map((comment) => (
+						<CommentCard key={comment.id}>
+							{editing?.id === comment.id ? (
+								<EditForm
+									editing={editing}
+									busy={busy}
+									onChange={onChangeEdit}
+									onChangeIntent={onChangeEditIntent}
+									onCancel={onCancelEdit}
+									onSave={onSaveEdit}
+								/>
+							) : (
+								<div className="selectable-card">
+									{selectionMode ? (
+										<SelectionCheckbox
+											checked={selectedIds.includes(comment.id)}
+											label={`Select ${comment.body} for AI`}
+											onChange={() => onToggleSelection(comment.id)}
+										/>
+									) : undefined}
+									<div className="selectable-card__content">
+										<CardHeading comment={comment} onReveal={() => onReveal(comment.id)} />
+										<ClampText
+											text={comment.body}
+											expanded={expandedBodies.includes(comment.id)}
+											onToggle={() => onToggleBody(comment.id)}
+										/>
+										<div className="card-actions">
+											<ItemAction
+												label="Edit comment"
+												icon={<Pencil aria-hidden="true" size={13} />}
+												disabled={busy}
+												onClick={() =>
+													onEdit({
+														id: comment.id,
+														version: comment.version,
+														body: comment.body,
+														intent: comment.intent
+													})
+												}
+											/>
+											<ItemAction
+												label="Delete comment"
+												icon={<Trash2 aria-hidden="true" size={13} />}
+												danger
+												disabled={busy}
+												onClick={() => onDelete(comment.id)}
+											/>
+										</div>
+									</div>
+								</div>
+							)}
+						</CommentCard>
+					))}
+				</Section>
+			) : undefined}
+
+			{groups.working.length ? (
+				<Section title="In progress" count={groups.working.length}>
+					{groups.working.map((comment) => (
+						<CommentCard key={comment.id} dimmed>
+							<CardHeading
+								comment={comment}
+								onReveal={() => onReveal(comment.id)}
+								trailing={`${comment.claim?.client ?? "AI agent"} working…`}
+							/>
+							<ClampText
+								text={comment.body}
+								expanded={expandedBodies.includes(comment.id)}
+								onToggle={() => onToggleBody(comment.id)}
+							/>
+						</CommentCard>
+					))}
+				</Section>
+			) : undefined}
+
+			{groups.attention.length ? (
+				<Section title="Needs attention" count={groups.attention.length}>
+					{groups.attention.map((comment) =>
+						comment.status === "unresolved" ? (
+							<UnresolvedCard
+								key={comment.id}
+								comment={comment}
+								busy={busy}
+								onReveal={onReveal}
+								onDelete={onDelete}
+								onCreateFollowUp={onCreateFollowUp}
+							/>
+						) : editing?.id === comment.id ? (
+							<CommentCard key={comment.id}>
+								<EditForm
+									editing={editing}
+									busy={busy}
+									onChange={onChangeEdit}
+									onChangeIntent={onChangeEditIntent}
+									onCancel={onCancelEdit}
+									onSave={onSaveEdit}
+								/>
+							</CommentCard>
+						) : (
+							<OrphanedCard
+								key={comment.id}
+								comment={comment}
+								busy={busy}
+								expanded={expandedBodies.includes(comment.id)}
+								onToggleBody={() => onToggleBody(comment.id)}
+								onEdit={() =>
+									onEdit({
+										id: comment.id,
+										version: comment.version,
+										body: comment.body,
+										intent: comment.intent
+									})
+								}
+								onDelete={onDelete}
+								onReattach={onReattach}
+							/>
+						)
+					)}
+				</Section>
+			) : undefined}
+		</div>
+	);
+}
+
+function UnresolvedCard({
+	comment,
+	busy,
+	onReveal,
+	onDelete,
+	onCreateFollowUp
+}: {
+	readonly comment: ReviewComment;
+	readonly busy: boolean;
+	readonly onReveal: (id: string) => void;
+	readonly onDelete: (id: string) => void;
+	readonly onCreateFollowUp: (comment: ReviewComment) => void;
+}) {
+	const result = comment.result?.outcome === "unresolved" ? comment.result : undefined;
+	return (
+		<CommentCard>
+			<CardHeading comment={comment} onReveal={() => onReveal(comment.id)} trailing="Unresolved" warning />
+			<p className="attention-copy">{result?.explanation ?? comment.body}</p>
+			{result?.suggestedNewComment ? (
+				<div className="suggestion">
+					<span>Suggested next comment</span>
+					<p>{result.suggestedNewComment}</p>
+				</div>
+			) : undefined}
+			<div className="attention-actions">
+				{result?.suggestedNewComment ? (
+					<Button variant="secondary" size="sm" disabled={busy} onClick={() => onCreateFollowUp(comment)}>
+						Create new comment
 					</Button>
 				) : (
-					<strong>
-						{title.toUpperCase()} · {comments.length}
-					</strong>
+					<span />
 				)}
-				{toolbar}
+				<ItemAction
+					label="Delete comment"
+					icon={<Trash2 aria-hidden="true" size={13} />}
+					danger
+					disabled={busy}
+					onClick={() => onDelete(comment.id)}
+				/>
+			</div>
+		</CommentCard>
+	);
+}
+
+function OrphanedCard({
+	comment,
+	busy,
+	expanded,
+	onToggleBody,
+	onEdit,
+	onDelete,
+	onReattach
+}: {
+	readonly comment: ReviewComment;
+	readonly busy: boolean;
+	readonly expanded: boolean;
+	readonly onToggleBody: () => void;
+	readonly onEdit: () => void;
+	readonly onDelete: (id: string) => void;
+	readonly onReattach: (comment: ReviewComment) => void;
+}) {
+	return (
+		<CommentCard>
+			<div className="card-heading">
+				<span className="intent-label intent-label--warning">Needs reattachment</span>
+				<IntentLabel intent={comment.intent} />
+			</div>
+			<ClampText text={comment.body} expanded={expanded} onToggle={onToggleBody} />
+			<p className="orphan-warning">The selected code can no longer be located safely.</p>
+			<div className="attention-actions">
+				<Button variant="secondary" size="sm" disabled={busy} onClick={() => onReattach(comment)}>
+					Reattach
+				</Button>
+				<div className="card-actions">
+					<ItemAction
+						label="Edit comment"
+						icon={<Pencil aria-hidden="true" size={13} />}
+						disabled={busy}
+						onClick={onEdit}
+					/>
+					<ItemAction
+						label="Delete comment"
+						icon={<Trash2 aria-hidden="true" size={13} />}
+						danger
+						disabled={busy}
+						onClick={() => onDelete(comment.id)}
+					/>
+				</div>
+			</div>
+		</CommentCard>
+	);
+}
+
+function ResolvedView({
+	comments,
+	expandedIds,
+	busy,
+	onToggle,
+	onReveal,
+	onDelete,
+	onClear
+}: {
+	readonly comments: readonly ReviewComment[];
+	readonly expandedIds: readonly string[];
+	readonly busy: boolean;
+	readonly onToggle: (id: string) => void;
+	readonly onReveal: (id: string) => void;
+	readonly onDelete: (id: string) => void;
+	readonly onClear: () => void;
+}) {
+	if (comments.length === 0) {
+		return (
+			<EmptyState
+				icon={<CheckCircle2 aria-hidden="true" size={25} />}
+				title="No resolved comments yet"
+				body="Completed agent results will appear here."
+			/>
+		);
+	}
+	return (
+		<div className="resolved-content">
+			<header className="resolved-toolbar">
+				<span>Resolved · {comments.length}</span>
+				<LinkButton disabled={busy} onClick={onClear}>
+					Clear resolved
+				</LinkButton>
 			</header>
-			{collapsed ? undefined : comments.length ? children : empty}
+			{comments.map((comment) => {
+				const result = comment.result?.outcome === "resolved" ? comment.result : undefined;
+				const expanded = expandedIds.includes(comment.id);
+				return (
+					<CommentCard key={comment.id}>
+						<div className="resolved-summary">
+							<button
+								type="button"
+								className="resolved-summary__toggle"
+								aria-expanded={expanded}
+								onClick={() => onToggle(comment.id)}
+							>
+								<div className="card-heading">
+									<span className="resolved-location">
+										<Check aria-hidden="true" size={13} />
+										{formatLocation(comment)}
+									</span>
+									<span className="resolved-summary__meta">
+										<IntentLabel intent={comment.intent} />
+										<ChevronRight
+											aria-hidden="true"
+											className={expanded ? "chevron chevron--expanded" : "chevron"}
+											size={13}
+										/>
+									</span>
+								</div>
+								<strong>{result?.summary ?? comment.body}</strong>
+								<span>{resolvedEvidence(result)}</span>
+							</button>
+							<div className="resolved-summary__actions">
+								{comment.anchor && comment.anchorState !== "orphaned" ? (
+									<LinkButton onClick={() => onReveal(comment.id)}>Open</LinkButton>
+								) : undefined}
+								<ItemAction
+									label="Delete comment"
+									icon={<Trash2 aria-hidden="true" size={13} />}
+									danger
+									disabled={busy}
+									onClick={() => onDelete(comment.id)}
+								/>
+							</div>
+						</div>
+						{expanded ? (
+							<div className="resolved-details">
+								<Detail label="Original comment" value={comment.body} />
+								<Detail label="Agent result" value={result?.summary} />
+								{result?.changedFiles.length ? (
+									<div className="detail">
+										<span>Changed files</span>
+										<ul>
+											{result.changedFiles.map((file) => (
+												<li key={file}>{file}</li>
+											))}
+										</ul>
+									</div>
+								) : undefined}
+								<Detail label="Verification" value={result?.verification || "Not reported"} />
+								<Detail label="Limitations" value={result?.limitations || "None reported"} />
+							</div>
+						) : undefined}
+					</CommentCard>
+				);
+			})}
+		</div>
+	);
+}
+
+function PreviewOverlay({
+	preview,
+	showRaw,
+	busy,
+	overlayRef,
+	onBack,
+	onToggleRaw,
+	onCopy
+}: {
+	readonly preview: PreviewState;
+	readonly showRaw: boolean;
+	readonly busy: boolean;
+	readonly overlayRef: React.RefObject<HTMLElement | null>;
+	readonly onBack: () => void;
+	readonly onToggleRaw: () => void;
+	readonly onCopy: () => void;
+}) {
+	return (
+		<section className="preview-overlay" aria-labelledby="preview-title" ref={overlayRef} tabIndex={-1}>
+			<header className="preview-header">
+				<LinkButton onClick={onBack}>← Back</LinkButton>
+				<strong id="preview-title">What will be copied</strong>
+				<Button size="sm" disabled={busy} onClick={onCopy}>
+					Copy
+				</Button>
+			</header>
+			<div className="preview-counts">
+				{preview.commentCount} {preview.commentCount === 1 ? "comment" : "comments"} · {preview.fileCount}{" "}
+				{preview.fileCount === 1 ? "file" : "files"}
+			</div>
+			<div className="preview-body">
+				{preview.comments.map((comment) => (
+					<div className="preview-item" key={comment.id}>
+						<div className="card-heading">
+							<span>{formatLocation(comment)}</span>
+							<IntentLabel intent={comment.intent} />
+						</div>
+						<p>{comment.body}</p>
+					</div>
+				))}
+				<LinkButton onClick={onToggleRaw}>
+					{showRaw ? "Hide raw instructions" : "View raw instructions"}
+				</LinkButton>
+				{showRaw ? <pre className="raw-preview">{preview.markdown}</pre> : undefined}
+			</div>
 		</section>
 	);
 }
 
-interface CommentGroupsProps {
-	readonly comments: readonly ReviewComment[];
-	readonly editing: EditingComment | undefined;
-	readonly selectedIds: ReadonlySet<string>;
-	readonly onToggleSelection: (id: string) => void;
-	readonly setEditing: React.Dispatch<React.SetStateAction<EditingComment | undefined>>;
-	readonly onSave: () => void;
-	readonly onReveal: (id: string) => void;
-	readonly onDelete: (id: string) => void;
+function ConfirmationOverlay({
+	count,
+	busy,
+	onCancel,
+	onConfirm
+}: {
+	readonly count: number;
+	readonly busy: boolean;
+	readonly onCancel: () => void;
+	readonly onConfirm: () => void;
+}) {
+	return (
+		<div className="confirmation-backdrop" role="presentation">
+			<section className="confirmation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="clear-title">
+				<strong id="clear-title">
+					Clear {count} resolved {count === 1 ? "comment" : "comments"}?
+				</strong>
+				<p>This permanently deletes their comments and agent results. This action cannot be undone.</p>
+				<div>
+					<Button variant="secondary" size="sm" disabled={busy} onClick={onCancel}>
+						Cancel
+					</Button>
+					<Button variant="destructive" size="sm" disabled={busy} onClick={onConfirm}>
+						Clear {count}
+					</Button>
+				</div>
+			</section>
+		</div>
+	);
 }
 
-function CommentGroups({
-	comments,
-	editing,
-	selectedIds,
-	onToggleSelection,
-	setEditing,
-	onSave,
-	onReveal,
-	onDelete
-}: CommentGroupsProps) {
-	return groupComments(comments).map(([filePath, fileComments]) => (
-		<section className="file-group" key={filePath}>
-			<header className="file-group__header">
-				<FileText aria-hidden="true" size={14} />
-				<span title={filePath}>{filePath}</span>
-				<Badge variant="muted">{fileComments.length}</Badge>
+function Tab({
+	active,
+	label,
+	count,
+	onClick
+}: {
+	readonly active: boolean;
+	readonly label: string;
+	readonly count: number;
+	readonly onClick: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			className={active ? "review-tab review-tab--active" : "review-tab"}
+			aria-current={active ? "page" : undefined}
+			onClick={onClick}
+		>
+			{label} {count}
+		</button>
+	);
+}
+
+function Section({
+	title,
+	count,
+	toolbar,
+	children
+}: {
+	readonly title: string;
+	readonly count: number;
+	readonly toolbar?: React.ReactNode;
+	readonly children: React.ReactNode;
+}) {
+	return (
+		<section className="comment-section" aria-label={`${title} review comments`}>
+			<header className="section-header">
+				<span>
+					{title} <em>· {count}</em>
+				</span>
+				{toolbar}
 			</header>
-			<div className="file-group__comments">
-				{fileComments.map((comment) => (
-					<article
-						className={`comment-card comment-card--${comment.status}`}
-						aria-label={`${reviewIntentPresentation[comment.intent].label} comment, ${
-							reviewStatusPresentation[comment.status].label
-						}, ${formatCommentLocation(comment)}`}
-						key={comment.id}
-					>
-						{editing?.id === comment.id ? (
-							<div className="comment-editor">
-								<select
-									aria-label="Comment intent"
-									value={editing.intent}
-									onChange={(event) =>
-										setEditing({
-											...editing,
-											intent: event.target.value as ReviewCommentIntent
-										})
-									}
-								>
-									{Object.entries(reviewIntentPresentation).map(([intent, presentation]) => (
-										<option key={intent} value={intent}>
-											{presentation.label}
-										</option>
-									))}
-								</select>
-								<Textarea
-									aria-label="Review comment"
-									value={editing.body}
-									onChange={(event) => setEditing({ ...editing, body: event.target.value })}
-									onKeyDown={(event) => {
-										if (event.key === "Escape") {
-											setEditing(undefined);
-										} else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-											event.preventDefault();
-											onSave();
-										}
-									}}
-									autoFocus
-									rows={4}
-								/>
-								<div className="comment-editor__actions">
-									<Button variant="ghost" size="sm" onClick={() => setEditing(undefined)}>
-										<X aria-hidden="true" size={13} /> Cancel
-									</Button>
-									<Button size="sm" onClick={onSave} disabled={!editing.body.trim()}>
-										<Check aria-hidden="true" size={13} /> Save
-									</Button>
-								</div>
-							</div>
-						) : (
-							<>
-								<div className="comment-card__heading">
-									{comment.status === "open" ? (
-										<input
-											type="checkbox"
-											checked={selectedIds.has(comment.id)}
-											onChange={() => onToggleSelection(comment.id)}
-											aria-label={`Select ${commentSummary(comment)} for AI`}
-										/>
-									) : undefined}
-									<div>
-										<strong>{reviewIntentPresentation[comment.intent].label}</strong>
-										<span>{formatCommentLocation(comment)}</span>
-									</div>
-								</div>
-								<p>{comment.body}</p>
-								{comment.status === "in_progress" ? (
-									<div className="comment-result">An AI agent is working on this comment.</div>
-								) : undefined}
-								{comment.result ? <ResultCard comment={comment} /> : undefined}
-								<div className="comment-card__actions">
-									<Button
-										variant="ghost"
-										size="icon"
-										onClick={() => onReveal(comment.id)}
-										disabled={!comment.anchor || comment.anchorState === "orphaned"}
-										aria-label={`Reveal ${commentSummary(comment)} in editor`}
-										title="Reveal in editor"
-									>
-										<Eye aria-hidden="true" size={13} />
-									</Button>
-									{comment.status === "open" ? (
-										<Button
-											variant="ghost"
-											size="icon"
-											aria-label={`Edit ${commentSummary(comment)}`}
-											title="Edit comment"
-											onClick={() =>
-												setEditing({
-													id: comment.id,
-													version: comment.version,
-													body: comment.body,
-													intent: comment.intent
-												})
-											}
-										>
-											<Pencil aria-hidden="true" size={13} />
-										</Button>
-									) : undefined}
-									{comment.status !== "in_progress" ? (
-										<Button
-											variant="ghost"
-											size="icon"
-											aria-label={`Delete ${commentSummary(comment)}`}
-											title="Delete comment"
-											onClick={() => onDelete(comment.id)}
-										>
-											<Trash2 aria-hidden="true" size={13} />
-										</Button>
-									) : undefined}
-								</div>
-							</>
-						)}
-					</article>
-				))}
-			</div>
+			{children}
 		</section>
-	));
+	);
 }
 
-function ResultCard({ comment }: { readonly comment: ReviewComment }) {
-	const result = comment.result!;
-	if (result.outcome === "unresolved") {
-		return (
-			<div className="comment-result">
-				<strong>Couldn’t resolve</strong>
-				<span>{result.explanation}</span>
-				{result.suggestedNewComment ? (
-					<>
-						<strong>Suggested new comment</strong>
-						<span>“{result.suggestedNewComment}”</span>
-					</>
-				) : undefined}
-			</div>
-		);
+function CommentCard({ children, dimmed = false }: { readonly children: React.ReactNode; readonly dimmed?: boolean }) {
+	return <article className={dimmed ? "review-card review-card--dimmed" : "review-card"}>{children}</article>;
+}
+
+function CardHeading({
+	comment,
+	onReveal,
+	trailing,
+	warning = false
+}: {
+	readonly comment: ReviewComment;
+	readonly onReveal: () => void;
+	readonly trailing?: string;
+	readonly warning?: boolean;
+}) {
+	return (
+		<div className="card-heading">
+			<FileLocation comment={comment} onReveal={onReveal} />
+			{trailing ? (
+				<span className={warning ? "intent-label intent-label--warning" : "agent-label"}>{trailing}</span>
+			) : (
+				<IntentLabel intent={comment.intent} />
+			)}
+		</div>
+	);
+}
+
+function FileLocation({ comment, onReveal }: { readonly comment: ReviewComment; readonly onReveal: () => void }) {
+	if (!comment.anchor || comment.anchorState === "orphaned") {
+		return <span className="file-location">Needs reattachment</span>;
 	}
 	return (
-		<div className="comment-result">
-			<strong>Resolved by {result.client}</strong>
-			<span>{result.summary}</span>
-			{result.changedFiles.length ? (
-				<>
-					<strong>Changed files</strong>
-					<ul>
-						{result.changedFiles.map((file) => (
-							<li key={file}>{file}</li>
-						))}
-					</ul>
-				</>
-			) : undefined}
-			{result.verification ? (
-				<>
-					<strong>Verification</strong>
-					<span>{result.verification}</span>
-				</>
-			) : undefined}
-			{result.limitations ? (
-				<>
-					<strong>Limitations</strong>
-					<span>{result.limitations}</span>
-				</>
+		<button
+			type="button"
+			className="file-location file-location--button"
+			title={comment.anchor.filePath}
+			onClick={onReveal}
+		>
+			{formatLocation(comment)}
+			{comment.anchorState === "moved" ? <em> · moved</em> : undefined}
+		</button>
+	);
+}
+
+function IntentLabel({ intent }: { readonly intent: ReviewCommentIntent }) {
+	return <span className="intent-label">{reviewIntentPresentation[intent].label}</span>;
+}
+
+function ClampText({
+	text,
+	expanded,
+	onToggle
+}: {
+	readonly text: string;
+	readonly expanded: boolean;
+	readonly onToggle: () => void;
+}) {
+	const isLong = text.length > 140 || text.split("\n").length > 3;
+	return (
+		<div className="clamp-text">
+			<p className={expanded ? "clamp-text__copy clamp-text__copy--expanded" : "clamp-text__copy"}>{text}</p>
+			{isLong ? <LinkButton onClick={onToggle}>{expanded ? "Show less" : "Show more"}</LinkButton> : undefined}
+		</div>
+	);
+}
+
+function EditForm({
+	editing,
+	busy,
+	onChange,
+	onChangeIntent,
+	onCancel,
+	onSave
+}: {
+	readonly editing: EditingComment;
+	readonly busy: boolean;
+	readonly onChange: (body: string) => void;
+	readonly onChangeIntent: (intent: ReviewCommentIntent) => void;
+	readonly onCancel: () => void;
+	readonly onSave: () => void;
+}) {
+	return (
+		<div className="comment-editor">
+			<select
+				aria-label="Comment category"
+				value={editing.intent}
+				onChange={(event) => onChangeIntent(event.target.value as ReviewCommentIntent)}
+			>
+				{Object.entries(reviewIntentPresentation).map(([intent, presentation]) => (
+					<option key={intent} value={intent}>
+						{presentation.label}
+					</option>
+				))}
+			</select>
+			<Textarea
+				aria-label="Review comment"
+				value={editing.body}
+				onChange={(event) => onChange(event.target.value)}
+				onKeyDown={(event) => {
+					if (event.key === "Escape") {
+						onCancel();
+					} else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+						event.preventDefault();
+						onSave();
+					}
+				}}
+				autoFocus
+				rows={4}
+			/>
+			<div className="editor-actions">
+				<Button variant="secondary" size="sm" disabled={busy} onClick={onCancel}>
+					Cancel
+				</Button>
+				<Button size="sm" disabled={busy || !editing.body.trim()} onClick={onSave}>
+					Save
+				</Button>
+			</div>
+		</div>
+	);
+}
+
+function SelectionCheckbox({
+	checked,
+	label,
+	onChange
+}: {
+	readonly checked: boolean;
+	readonly label: string;
+	readonly onChange: () => void;
+}) {
+	return (
+		<label className="selection-checkbox">
+			<input type="checkbox" checked={checked} aria-label={label} onChange={onChange} />
+			<span aria-hidden="true">{checked ? <Check size={11} /> : undefined}</span>
+		</label>
+	);
+}
+
+function ItemAction({
+	label,
+	icon,
+	danger = false,
+	disabled = false,
+	onClick
+}: {
+	readonly label: string;
+	readonly icon: React.ReactNode;
+	readonly danger?: boolean;
+	readonly disabled?: boolean;
+	readonly onClick: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			className={danger ? "item-action item-action--danger" : "item-action"}
+			aria-label={label}
+			title={label}
+			disabled={disabled}
+			onClick={onClick}
+		>
+			{icon}
+		</button>
+	);
+}
+
+function LinkButton({
+	children,
+	disabled,
+	onClick
+}: {
+	readonly children: React.ReactNode;
+	readonly disabled?: boolean;
+	readonly onClick: () => void;
+}) {
+	return (
+		<button type="button" className="link-button" disabled={disabled} onClick={onClick}>
+			{children}
+		</button>
+	);
+}
+
+function Detail({ label, value }: { readonly label: string; readonly value: string | undefined }) {
+	if (!value) {
+		return undefined;
+	}
+	return (
+		<div className="detail">
+			<span>{label}</span>
+			<p>{value}</p>
+		</div>
+	);
+}
+
+function EmptyState({
+	icon,
+	title,
+	body,
+	action
+}: {
+	readonly icon: React.ReactNode;
+	readonly title: string;
+	readonly body: string;
+	readonly action?: { readonly label: string; readonly onClick: () => void };
+}) {
+	return (
+		<div className="empty-state">
+			<div className="empty-state__icon">{icon}</div>
+			<strong>{title}</strong>
+			<p>{body}</p>
+			{action ? (
+				<Button variant="secondary" size="sm" onClick={action.onClick}>
+					{action.label}
+				</Button>
 			) : undefined}
 		</div>
 	);
@@ -749,51 +1248,38 @@ function reduceRemoteReviewState(state: RemoteReviewState, action: RemoteReviewA
 	return { status: "ready", envelope: action.envelope };
 }
 
-function groupComments(comments: readonly ReviewComment[]): [string, ReviewComment[]][] {
-	const groups = new Map<string, ReviewComment[]>();
-	for (const comment of comments) {
-		const filePath = comment.anchor?.filePath ?? "Needs reattachment";
-		const group = groups.get(filePath) ?? [];
-		group.push(comment);
-		groups.set(filePath, group);
-	}
-	return [...groups.entries()];
-}
-
-function formatCommentLocation(comment: ReviewComment): string {
-	if (!comment.anchor || comment.anchorState === "orphaned") {
-		return "Needs reattachment";
-	}
-	const range = comment.anchor.range;
-	const lines =
-		range.startLine === range.endLine ? `Line ${range.startLine}` : `Lines ${range.startLine}–${range.endLine}`;
-	return comment.anchorState === "moved" ? `${lines} · moved` : lines;
-}
-
-function commentSummary(comment: ReviewComment): string {
-	const summary = comment.body.replace(/\s+/g, " ").trim();
-	return `comment “${summary.length > 60 ? `${summary.slice(0, 57)}…` : summary}”`;
-}
-
 function normalizeWebviewState(value: unknown): ReviewWebviewState {
 	if (value === true || value === false) {
-		return { showResolved: value, selectedCommentIds: [], selectionInitialized: false };
+		return { activeView: value ? "resolved" : "review" };
 	}
 	if (!value || typeof value !== "object") {
-		return { showResolved: false, selectedCommentIds: [], selectionInitialized: false };
+		return { activeView: "review" };
 	}
-	const state = value as Partial<ReviewWebviewState>;
+	const state = value as { readonly activeView?: unknown; readonly showResolved?: unknown };
 	return {
-		showResolved: state.showResolved === true,
-		selectedCommentIds: Array.isArray(state.selectedCommentIds)
-			? state.selectedCommentIds.filter((id): id is string => typeof id === "string")
-			: [],
-		selectionInitialized: state.selectionInitialized === true
+		activeView: state.activeView === "resolved" || state.showResolved === true ? "resolved" : "review"
 	};
 }
 
-function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
-	return left.length === right.length && left.every((value, index) => value === right[index]);
+function formatLocation(comment: ReviewComment): string {
+	if (!comment.anchor || comment.anchorState === "orphaned") {
+		return "Needs reattachment";
+	}
+	const fileName = comment.anchor.filePath.split("/").pop() || comment.anchor.filePath;
+	return `${fileName}:${comment.anchor.range.startLine}`;
+}
+
+function resolvedEvidence(result: ReviewComment["result"]): string {
+	if (!result || result.outcome !== "resolved") {
+		return "Result details unavailable";
+	}
+	const fileCount = result.changedFiles.length;
+	const changed = fileCount === 0 ? "No files changed" : `${fileCount} ${fileCount === 1 ? "file" : "files"}`;
+	return result.verification ? `${changed} · Verification reported` : changed;
+}
+
+function toggleId(ids: readonly string[], id: string): string[] {
+	return ids.includes(id) ? ids.filter((candidate) => candidate !== id) : [...ids, id];
 }
 
 function isStateEnvelope(value: unknown): value is ReviewPanelStateEnvelope {

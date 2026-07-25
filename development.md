@@ -55,7 +55,7 @@ Maintainers can recreate all review data with `npm run seed:development` in `~/s
 
 ## Agent integration details
 
-Open **Request Changes: Open Settings** or use the gear in the Review Comments view. The settings panel:
+Open **Request Changes: Open Settings** or choose **Settings** from the workspace overflow menu in the Review Comments view. The settings panel:
 
 - installs or removes the MCP server for Codex, Claude Code, and GitHub Copilot CLI at Workspace or User scope;
 - shows the MCP server that the extension registers automatically for GitHub Copilot in VS Code;
