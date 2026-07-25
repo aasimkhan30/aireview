@@ -50,14 +50,20 @@ describe("normalizeWebviewDiagnosticInput", () => {
 				name: "state.load.completed",
 				correlationId: "abc123",
 				durationMs: 12.5,
-				data: { revision: 4, noteCount: 2, body: "must not cross the boundary" }
+				data: { revision: 4, commentCount: 2, body: "must not cross the boundary" }
 			})
 		).toEqual({
 			level: "info",
 			name: "state.load.completed",
 			correlationId: "abc123",
 			durationMs: 12.5,
-			data: { revision: 4, noteCount: 2, hasActiveFile: undefined, errorName: undefined, errorMessage: undefined }
+			data: {
+				revision: 4,
+				commentCount: 2,
+				hasActiveFile: undefined,
+				errorName: undefined,
+				errorMessage: undefined
+			}
 		});
 	});
 

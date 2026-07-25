@@ -2,7 +2,6 @@ import * as React from "react";
 import {
 	Check,
 	ChevronRight,
-	CircleCheckBig,
 	Copy,
 	Eye,
 	FileText,
@@ -14,14 +13,17 @@ import {
 	X
 } from "lucide-react";
 import type { MessageConnection } from "vscode-jsonrpc/browser";
-import type {
-	ReviewBundlePreview,
-	ReviewNote,
-	ReviewNoteKind,
-	ReviewPanelStateEnvelope
+import {
+	reviewIntentPresentation,
+	reviewStatusPresentation,
+	type ReviewComment,
+	type ReviewCommentIntent,
+	type ReviewCommentsPreview,
+	type ReviewPanelStateEnvelope
 } from "../../common/reviewProtocol";
 import { ReviewRpc } from "../../common/reviewProtocol";
 import { shouldAcceptStateEnvelope } from "../../common/webviewProtocol";
+import { reconcileSelectedCommentIds } from "../../review/reviewSelection";
 import { usePersistedWebviewState } from "../usePersistedWebviewState";
 import type { WebviewDiagnostics } from "../webviewDiagnostics";
 import { Badge } from "./components/ui/badge";
@@ -42,20 +44,30 @@ type RemoteReviewAction =
 	| { readonly type: "received"; readonly envelope: ReviewPanelStateEnvelope }
 	| { readonly type: "failed"; readonly error: unknown };
 
-interface EditingNote {
+interface EditingComment {
 	readonly id: string;
+	readonly version: number;
 	readonly body: string;
-	readonly kind: ReviewNoteKind;
+	readonly intent: ReviewCommentIntent;
+}
+
+interface ReviewWebviewState {
+	readonly showResolved: boolean;
+	readonly selectedCommentIds: readonly string[];
+	readonly selectionInitialized: boolean;
 }
 
 export function App({ connection, diagnostics }: AppProps) {
-	const [remoteState, dispatchRemoteState] = React.useReducer(reduceRemoteReviewState, { status: "loading" });
-	const [editing, setEditing] = React.useState<EditingNote>();
-	const [preview, setPreview] = React.useState<ReviewBundlePreview>();
+	const [remoteState, dispatchRemoteState] = React.useReducer(reduceRemoteReviewState, {
+		status: "loading"
+	});
+	const [editing, setEditing] = React.useState<EditingComment>();
+	const [preview, setPreview] = React.useState<ReviewCommentsPreview>();
 	const [busy, setBusy] = React.useState<string>();
 	const [message, setMessage] = React.useState<string>();
 	const [confirmClearResolved, setConfirmClearResolved] = React.useState(false);
-	const [showResolved, setShowResolved] = usePersistedWebviewState((value) => value === true);
+	const [webviewState, setWebviewState] = usePersistedWebviewState(normalizeWebviewState);
+	const knownOpenIds = React.useRef<Set<string> | undefined>(undefined);
 	const previewRef = React.useRef<HTMLElement>(null);
 	const previewButtonRef = React.useRef<HTMLButtonElement>(null);
 
@@ -95,16 +107,50 @@ export function App({ connection, diagnostics }: AppProps) {
 	}, [preview]);
 
 	const state = remoteState.status === "ready" ? remoteState.envelope.value : undefined;
-	const activeGroupedNotes = React.useMemo(
-		() => groupNotes((state?.notes ?? []).filter((note) => note.status !== "resolved")),
-		[state?.notes]
+	const openComments = React.useMemo(
+		() => (state?.comments ?? []).filter((comment) => comment.status === "open"),
+		[state?.comments]
 	);
-	const resolvedGroupedNotes = React.useMemo(
-		() => groupNotes((state?.notes ?? []).filter((note) => note.status === "resolved")),
-		[state?.notes]
+	const workingComments = React.useMemo(
+		() => (state?.comments ?? []).filter((comment) => comment.status === "in_progress"),
+		[state?.comments]
 	);
-	const resolvedCount = resolvedGroupedNotes.reduce((count, [, notes]) => count + notes.length, 0);
-	const actionableCount = state?.notes.filter((note) => isActionableStatus(note.status)).length ?? 0;
+	const unresolvedComments = React.useMemo(
+		() => (state?.comments ?? []).filter((comment) => comment.status === "unresolved"),
+		[state?.comments]
+	);
+	const resolvedComments = React.useMemo(
+		() => (state?.comments ?? []).filter((comment) => comment.status === "resolved"),
+		[state?.comments]
+	);
+	const selectedIds = React.useMemo(
+		() => new Set(webviewState.selectedCommentIds),
+		[webviewState.selectedCommentIds]
+	);
+	const selectedOpenIds = openComments.filter((comment) => selectedIds.has(comment.id)).map((comment) => comment.id);
+
+	React.useEffect(() => {
+		if (!state) {
+			return;
+		}
+		const currentOpenIds = new Set(
+			state.comments.filter((comment) => comment.status === "open").map((comment) => comment.id)
+		);
+		setWebviewState((current) => {
+			const previousOpenIds = knownOpenIds.current;
+			const selectedCommentIds = reconcileSelectedCommentIds(
+				current.selectedCommentIds,
+				[...currentOpenIds],
+				previousOpenIds,
+				current.selectionInitialized
+			);
+			if (current.selectionInitialized && arraysEqual(selectedCommentIds, current.selectedCommentIds)) {
+				return current;
+			}
+			return { ...current, selectionInitialized: true, selectedCommentIds };
+		});
+		knownOpenIds.current = currentOpenIds;
+	}, [setWebviewState, state]);
 
 	async function runOperation<T>(
 		name: Parameters<WebviewDiagnostics["startOperation"]>[0],
@@ -132,25 +178,30 @@ export function App({ connection, diagnostics }: AppProps) {
 		await runOperation("state.refresh", () => connection.sendRequest(ReviewRpc.getState), receiveState);
 	}
 
-	async function revealNote(id: string): Promise<void> {
-		await runOperation("note.reveal", () => connection.sendRequest(ReviewRpc.revealNote, { id }));
+	async function revealComment(id: string): Promise<void> {
+		await runOperation("comment.reveal", () => connection.sendRequest(ReviewRpc.revealComment, { id }));
 	}
 
-	async function deleteNote(id: string): Promise<void> {
-		await runOperation("note.delete", () => connection.sendRequest(ReviewRpc.deleteNote, { id }), receiveState);
+	async function deleteComment(id: string): Promise<void> {
+		await runOperation(
+			"comment.delete",
+			() => connection.sendRequest(ReviewRpc.deleteComment, { id }),
+			receiveState
+		);
 	}
 
-	async function saveNote(): Promise<void> {
+	async function saveComment(): Promise<void> {
 		if (!editing?.body.trim()) {
 			return;
 		}
 		await runOperation(
-			"note.update",
+			"comment.edit",
 			() =>
-				connection.sendRequest(ReviewRpc.updateNote, {
+				connection.sendRequest(ReviewRpc.editOpenComment, {
 					id: editing.id,
+					expectedVersion: editing.version,
 					body: editing.body,
-					kind: editing.kind
+					intent: editing.intent
 				}),
 			(result) => {
 				receiveState(result);
@@ -159,65 +210,48 @@ export function App({ connection, diagnostics }: AppProps) {
 		);
 	}
 
-	async function toggleResolved(note: ReviewNote): Promise<void> {
-		const resolving = note.status !== "resolved";
+	async function clearResolvedComments(): Promise<void> {
 		await runOperation(
-			"note.update",
-			() =>
-				connection.sendRequest(ReviewRpc.updateNote, {
-					id: note.id,
-					status: note.status === "resolved" ? "draft" : "resolved"
-				}),
+			"comments.clearResolved",
+			() => connection.sendRequest(ReviewRpc.clearResolvedComments),
 			(result) => {
-				receiveState(result);
-				setMessage(
-					resolving
-						? "Comment resolved and moved to resolved comments."
-						: "Comment reopened and moved to active comments."
-				);
-			}
-		);
-	}
-
-	async function clearResolvedNotes(): Promise<void> {
-		const resolvedIds = state?.notes.filter((note) => note.status === "resolved").map((note) => note.id) ?? [];
-		if (resolvedIds.length === 0) {
-			return;
-		}
-		await runOperation(
-			"note.delete",
-			async () => {
-				let result: ReviewPanelStateEnvelope | undefined;
-				for (const id of resolvedIds) {
-					result = await connection.sendRequest(ReviewRpc.deleteNote, { id });
-				}
-				if (!result) {
-					throw new Error("No resolved comments were available to clear.");
-				}
-				return result;
-			},
-			(result) => {
-				receiveState(result);
+				receiveState(result.state);
 				setConfirmClearResolved(false);
-				setShowResolved(false);
+				setWebviewState((current) => ({ ...current, showResolved: false }));
 				setMessage(
-					`${resolvedIds.length} resolved ${resolvedIds.length === 1 ? "comment" : "comments"} permanently deleted.`
+					`Cleared ${result.clearedCount} resolved ${result.clearedCount === 1 ? "comment" : "comments"}.`
 				);
 			}
 		);
 	}
 
-	async function previewBundle(): Promise<void> {
-		await runOperation("bundle.preview", () => connection.sendRequest(ReviewRpc.previewBundle), setPreview);
+	async function previewComments(): Promise<void> {
+		await runOperation(
+			"comments.preview",
+			() =>
+				connection.sendRequest(ReviewRpc.previewComments, {
+					commentIds: selectedOpenIds
+				}),
+			setPreview
+		);
 	}
 
-	async function copyBundle(): Promise<void> {
-		await runOperation("bundle.copy", () =>
-			connection.sendRequest(ReviewRpc.copyBundle).then((result) => {
+	async function copyComments(): Promise<void> {
+		await runOperation("comments.copy", () =>
+			connection.sendRequest(ReviewRpc.copyComments, { commentIds: selectedOpenIds }).then((result) => {
 				setMessage(result.message);
 				return result;
 			})
 		);
+	}
+
+	function toggleSelection(id: string): void {
+		setWebviewState((current) => ({
+			...current,
+			selectedCommentIds: current.selectedCommentIds.includes(id)
+				? current.selectedCommentIds.filter((candidate) => candidate !== id)
+				: [...current.selectedCommentIds, id]
+		}));
 	}
 
 	function closePreview(): void {
@@ -243,33 +277,17 @@ export function App({ connection, diagnostics }: AppProps) {
 					</div>
 				</div>
 				<div className="review-header__actions">
-					<Badge
-						aria-label={`${actionableCount} open review ${actionableCount === 1 ? "comment" : "comments"}`}
-					>
-						{actionableCount}
-					</Badge>
+					<Badge aria-label={`${openComments.length} open review comments`}>{openComments.length}</Badge>
 					<Button
 						ref={previewButtonRef}
 						variant="ghost"
 						size="icon"
-						aria-label="Preview review bundle"
-						aria-controls="review-bundle-preview"
-						aria-expanded={Boolean(preview)}
-						title="Preview review bundle"
-						onClick={() => void previewBundle()}
-						disabled={actionableCount === 0 || Boolean(busy)}
+						aria-label="Preview selected comments"
+						title="Preview selected comments"
+						onClick={() => void previewComments()}
+						disabled={selectedOpenIds.length === 0 || Boolean(busy)}
 					>
 						<Eye aria-hidden="true" size={15} />
-					</Button>
-					<Button
-						variant="ghost"
-						size="icon"
-						aria-label="Copy review bundle to clipboard"
-						title="Copy review bundle"
-						onClick={() => void copyBundle()}
-						disabled={actionableCount === 0 || Boolean(busy)}
-					>
-						<Copy aria-hidden="true" size={15} />
 					</Button>
 					<Button
 						variant="ghost"
@@ -283,11 +301,6 @@ export function App({ connection, diagnostics }: AppProps) {
 					</Button>
 				</div>
 			</header>
-			{busy ? (
-				<div className="sr-only" role="status" aria-live="polite">
-					Updating Request Changes.
-				</div>
-			) : undefined}
 
 			{remoteState.status === "error" ? (
 				<div className="message message--error" role="alert">
@@ -300,43 +313,155 @@ export function App({ connection, diagnostics }: AppProps) {
 				</div>
 			) : undefined}
 
-			<section className="review-notes" aria-label="Active review comments">
-				{activeGroupedNotes.length === 0 ? (
-					<div className="empty-state">
-						{resolvedCount ? (
-							<CircleCheckBig
-								className="empty-state__icon empty-state__icon--success"
-								aria-hidden="true"
-								size={28}
-							/>
-						) : (
-							<MessageSquarePlus className="empty-state__icon" aria-hidden="true" size={28} />
-						)}
-						<strong>{resolvedCount ? "No active review comments" : "No review comments yet"}</strong>
-						<span>
-							{resolvedCount
-								? `${resolvedCount} resolved ${resolvedCount === 1 ? "comment is" : "comments are"} available below.`
-								: "Select code, then use the comment-add button above or right-click and choose Add Review Comment."}
-						</span>
-					</div>
-				) : (
-					<ReviewNoteGroups
-						groups={activeGroupedNotes}
+			<div className="review-sections">
+				<StatusSection
+					title="Open"
+					comments={openComments}
+					toolbar={
+						openComments.length ? (
+							<Button
+								variant="ghost"
+								size="sm"
+								onClick={() =>
+									setWebviewState((current) => ({
+										...current,
+										selectedCommentIds:
+											selectedOpenIds.length === openComments.length
+												? []
+												: openComments.map((comment) => comment.id)
+									}))
+								}
+							>
+								{selectedOpenIds.length === openComments.length ? "Clear selection" : "Select all"}
+							</Button>
+						) : undefined
+					}
+					empty={
+						state ? (
+							<div className="empty-state">
+								<MessageSquarePlus className="empty-state__icon" aria-hidden="true" size={28} />
+								<strong>No open review comments</strong>
+								<span>Select code and add a review comment.</span>
+							</div>
+						) : undefined
+					}
+				>
+					<CommentGroups
+						comments={openComments}
 						editing={editing}
+						selectedIds={selectedIds}
+						onToggleSelection={toggleSelection}
 						setEditing={setEditing}
-						onSave={() => void saveNote()}
-						onReveal={(id) => void revealNote(id)}
-						onToggleResolved={(note) => void toggleResolved(note)}
-						onDelete={(id) => void deleteNote(id)}
+						onSave={() => void saveComment()}
+						onReveal={(id) => void revealComment(id)}
+						onDelete={(id) => void deleteComment(id)}
 					/>
-				)}
-			</section>
+					{openComments.length ? (
+						<div className="primary-copy-action">
+							<Button
+								onClick={() => void copyComments()}
+								disabled={selectedOpenIds.length === 0 || Boolean(busy)}
+							>
+								<Copy aria-hidden="true" size={14} /> Copy {selectedOpenIds.length}{" "}
+								{selectedOpenIds.length === 1 ? "comment" : "comments"} for AI
+							</Button>
+						</div>
+					) : undefined}
+				</StatusSection>
+
+				{workingComments.length ? (
+					<StatusSection title="Working" comments={workingComments}>
+						<CommentGroups
+							comments={workingComments}
+							editing={editing}
+							selectedIds={selectedIds}
+							onToggleSelection={toggleSelection}
+							setEditing={setEditing}
+							onSave={() => void saveComment()}
+							onReveal={(id) => void revealComment(id)}
+							onDelete={(id) => void deleteComment(id)}
+						/>
+					</StatusSection>
+				) : undefined}
+
+				{unresolvedComments.length ? (
+					<StatusSection title="Couldn’t resolve" comments={unresolvedComments}>
+						<CommentGroups
+							comments={unresolvedComments}
+							editing={editing}
+							selectedIds={selectedIds}
+							onToggleSelection={toggleSelection}
+							setEditing={setEditing}
+							onSave={() => void saveComment()}
+							onReveal={(id) => void revealComment(id)}
+							onDelete={(id) => void deleteComment(id)}
+						/>
+					</StatusSection>
+				) : undefined}
+
+				{resolvedComments.length ? (
+					<StatusSection
+						title="Resolved"
+						comments={resolvedComments}
+						collapsed={!webviewState.showResolved}
+						onToggleCollapsed={() =>
+							setWebviewState((current) => ({
+								...current,
+								showResolved: !current.showResolved
+							}))
+						}
+						toolbar={
+							<Button
+								variant="ghost"
+								size="sm"
+								onClick={() => setConfirmClearResolved(true)}
+								disabled={Boolean(busy)}
+							>
+								<Trash2 aria-hidden="true" size={13} /> Clear resolved
+							</Button>
+						}
+					>
+						{confirmClearResolved ? (
+							<div className="resolved-confirmation" role="alert">
+								<span>
+									Remove {resolvedComments.length} resolved{" "}
+									{resolvedComments.length === 1 ? "comment" : "comments"} from this workspace?
+									<br />
+									This permanently removes their comments and AI results.
+								</span>
+								<div>
+									<Button variant="ghost" size="sm" onClick={() => setConfirmClearResolved(false)}>
+										Cancel
+									</Button>
+									<Button
+										variant="destructive"
+										size="sm"
+										onClick={() => void clearResolvedComments()}
+									>
+										Clear {resolvedComments.length}
+									</Button>
+								</div>
+							</div>
+						) : undefined}
+						<CommentGroups
+							comments={resolvedComments}
+							editing={editing}
+							selectedIds={selectedIds}
+							onToggleSelection={toggleSelection}
+							setEditing={setEditing}
+							onSave={() => void saveComment()}
+							onReveal={(id) => void revealComment(id)}
+							onDelete={(id) => void deleteComment(id)}
+						/>
+					</StatusSection>
+				) : undefined}
+			</div>
 
 			{preview ? (
 				<section
-					className="bundle-preview"
-					id="review-bundle-preview"
-					aria-labelledby="review-bundle-preview-title"
+					className="comments-preview"
+					id="selected-comments-preview"
+					aria-labelledby="selected-comments-preview-title"
 					ref={previewRef}
 					tabIndex={-1}
 					onKeyDown={(event) => {
@@ -348,180 +473,147 @@ export function App({ connection, diagnostics }: AppProps) {
 				>
 					<header>
 						<div>
-							<strong id="review-bundle-preview-title">Bundle preview</strong>
+							<strong id="selected-comments-preview-title">Selected comments preview</strong>
 							<span>
-								{preview.noteCount} comments · {preview.fileCount} files
-								{preview.orphanedCount ? ` · ${preview.orphanedCount} orphaned` : ""}
+								{preview.commentCount} comments · {preview.fileCount} files
+								{preview.needsReattachmentCount
+									? ` · ${preview.needsReattachmentCount} need reattachment`
+									: ""}
 							</span>
 						</div>
-						<Button
-							variant="ghost"
-							size="icon"
-							aria-label="Close preview"
-							title="Close preview"
-							onClick={closePreview}
-						>
+						<Button variant="ghost" size="icon" aria-label="Close preview" onClick={closePreview}>
 							<X aria-hidden="true" size={14} />
 						</Button>
 					</header>
-					<pre aria-label="Review bundle contents" tabIndex={0}>
+					<pre aria-label="Selected comments contents" tabIndex={0}>
 						{preview.markdown}
 					</pre>
-				</section>
-			) : undefined}
-
-			{resolvedCount ? (
-				<section className="resolved-notes" aria-label="Resolved review comments">
-					<div className="resolved-notes__toolbar">
-						<Button
-							className="resolved-notes__toggle"
-							variant="ghost"
-							size="sm"
-							aria-expanded={showResolved}
-							aria-controls="resolved-review-comments"
-							onClick={() => setShowResolved((visible) => !visible)}
-						>
-							<ChevronRight
-								className={showResolved ? "resolved-notes__chevron--expanded" : undefined}
-								aria-hidden="true"
-								size={14}
-							/>
-							<span>{showResolved ? "Hide resolved" : "Show resolved"}</span>
-							<Badge variant="muted">{resolvedCount}</Badge>
-						</Button>
-						<Button
-							className="resolved-notes__clear"
-							variant="ghost"
-							size="sm"
-							aria-label={`Clear ${resolvedCount} resolved ${resolvedCount === 1 ? "comment" : "comments"}`}
-							onClick={() => setConfirmClearResolved(true)}
-							disabled={Boolean(busy)}
-						>
-							<Trash2 aria-hidden="true" size={13} /> Clear resolved
-						</Button>
-					</div>
-					{confirmClearResolved ? (
-						<div className="resolved-notes__confirmation" role="alert">
-							<span>
-								Permanently delete {resolvedCount} resolved{" "}
-								{resolvedCount === 1 ? "comment" : "comments"}?
-							</span>
-							<div>
-								<Button variant="ghost" size="sm" onClick={() => setConfirmClearResolved(false)}>
-									Cancel
-								</Button>
-								<Button
-									variant="destructive"
-									size="sm"
-									onClick={() => void clearResolvedNotes()}
-									disabled={Boolean(busy)}
-								>
-									Delete {resolvedCount}
-								</Button>
-							</div>
-						</div>
-					) : undefined}
-					{showResolved ? (
-						<div className="resolved-notes__content" id="resolved-review-comments">
-							<ReviewNoteGroups
-								groups={resolvedGroupedNotes}
-								editing={editing}
-								setEditing={setEditing}
-								onSave={() => void saveNote()}
-								onReveal={(id) => void revealNote(id)}
-								onToggleResolved={(note) => void toggleResolved(note)}
-								onDelete={(id) => void deleteNote(id)}
-							/>
-						</div>
-					) : undefined}
 				</section>
 			) : undefined}
 		</main>
 	);
 }
 
-interface ReviewNoteGroupsProps {
-	readonly groups: readonly [string, ReviewNote[]][];
-	readonly editing: EditingNote | undefined;
-	readonly setEditing: React.Dispatch<React.SetStateAction<EditingNote | undefined>>;
+interface StatusSectionProps {
+	readonly title: string;
+	readonly comments: readonly ReviewComment[];
+	readonly toolbar?: React.ReactNode;
+	readonly empty?: React.ReactNode;
+	readonly collapsed?: boolean;
+	readonly onToggleCollapsed?: () => void;
+	readonly children?: React.ReactNode;
+}
+
+function StatusSection({
+	title,
+	comments,
+	toolbar,
+	empty,
+	collapsed = false,
+	onToggleCollapsed,
+	children
+}: StatusSectionProps) {
+	return (
+		<section className="status-section" aria-label={`${title} review comments`}>
+			<header className="status-section__header">
+				{onToggleCollapsed ? (
+					<Button
+						variant="ghost"
+						size="sm"
+						className="status-section__toggle"
+						aria-expanded={!collapsed}
+						onClick={onToggleCollapsed}
+					>
+						<ChevronRight
+							className={!collapsed ? "status-section__chevron--expanded" : undefined}
+							aria-hidden="true"
+							size={14}
+						/>
+						{title.toUpperCase()} · {comments.length}
+					</Button>
+				) : (
+					<strong>
+						{title.toUpperCase()} · {comments.length}
+					</strong>
+				)}
+				{toolbar}
+			</header>
+			{collapsed ? undefined : comments.length ? children : empty}
+		</section>
+	);
+}
+
+interface CommentGroupsProps {
+	readonly comments: readonly ReviewComment[];
+	readonly editing: EditingComment | undefined;
+	readonly selectedIds: ReadonlySet<string>;
+	readonly onToggleSelection: (id: string) => void;
+	readonly setEditing: React.Dispatch<React.SetStateAction<EditingComment | undefined>>;
 	readonly onSave: () => void;
 	readonly onReveal: (id: string) => void;
-	readonly onToggleResolved: (note: ReviewNote) => void;
 	readonly onDelete: (id: string) => void;
 }
 
-function ReviewNoteGroups({
-	groups,
+function CommentGroups({
+	comments,
 	editing,
+	selectedIds,
+	onToggleSelection,
 	setEditing,
 	onSave,
 	onReveal,
-	onToggleResolved,
 	onDelete
-}: ReviewNoteGroupsProps) {
-	return groups.map(([filePath, notes]) => (
-		<section
-			className="file-group"
-			aria-label={`${filePath}, ${notes.length} ${notes.length === 1 ? "comment" : "comments"}`}
-			key={filePath}
-		>
+}: CommentGroupsProps) {
+	return groupComments(comments).map(([filePath, fileComments]) => (
+		<section className="file-group" key={filePath}>
 			<header className="file-group__header">
 				<FileText aria-hidden="true" size={14} />
 				<span title={filePath}>{filePath}</span>
-				<Badge variant="muted">{notes.length}</Badge>
+				<Badge variant="muted">{fileComments.length}</Badge>
 			</header>
-			<div className="file-group__notes">
-				{notes.map((note) => (
+			<div className="file-group__comments">
+				{fileComments.map((comment) => (
 					<article
-						className={`note-card note-card--${note.status}`}
-						aria-label={`${formatKind(note.kind)} comment, ${formatStatus(note.status)}, ${formatNoteLocation(note)}`}
-						key={note.id}
+						className={`comment-card comment-card--${comment.status}`}
+						aria-label={`${reviewIntentPresentation[comment.intent].label} comment, ${
+							reviewStatusPresentation[comment.status].label
+						}, ${formatCommentLocation(comment)}`}
+						key={comment.id}
 					>
-						{editing?.id === note.id ? (
-							<div className="note-editor">
-								<label className="sr-only" htmlFor={`note-kind-${note.id}`}>
-									Comment type
-								</label>
+						{editing?.id === comment.id ? (
+							<div className="comment-editor">
 								<select
-									id={`note-kind-${note.id}`}
-									value={editing.kind}
+									aria-label="Comment intent"
+									value={editing.intent}
 									onChange={(event) =>
 										setEditing({
 											...editing,
-											kind: event.target.value as ReviewNoteKind
+											intent: event.target.value as ReviewCommentIntent
 										})
 									}
 								>
-									<option value="change">Change</option>
-									<option value="question">Question</option>
-									<option value="explain">Explain</option>
-									<option value="test">Add test</option>
+									{Object.entries(reviewIntentPresentation).map(([intent, presentation]) => (
+										<option key={intent} value={intent}>
+											{presentation.label}
+										</option>
+									))}
 								</select>
-								<label className="sr-only" htmlFor={`note-body-${note.id}`}>
-									Review comment
-								</label>
 								<Textarea
-									id={`note-body-${note.id}`}
+									aria-label="Review comment"
 									value={editing.body}
 									onChange={(event) => setEditing({ ...editing, body: event.target.value })}
 									onKeyDown={(event) => {
 										if (event.key === "Escape") {
-											event.preventDefault();
 											setEditing(undefined);
 										} else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
 											event.preventDefault();
 											onSave();
 										}
 									}}
-									aria-describedby={`note-shortcuts-${note.id}`}
-									aria-keyshortcuts="Control+Enter Meta+Enter Escape"
 									autoFocus
 									rows={4}
 								/>
-								<span className="sr-only" id={`note-shortcuts-${note.id}`}>
-									Press Control or Command plus Enter to save. Press Escape to cancel.
-								</span>
-								<div className="note-editor__actions">
+								<div className="comment-editor__actions">
 									<Button variant="ghost" size="sm" onClick={() => setEditing(undefined)}>
 										<X aria-hidden="true" size={13} /> Cancel
 									</Button>
@@ -532,67 +624,65 @@ function ReviewNoteGroups({
 							</div>
 						) : (
 							<>
-								<div className="note-card__meta">
-									<span>{formatNoteLocation(note)}</span>
-									<div className="note-card__badges">
-										<Badge variant="muted">{formatStatus(note.status)}</Badge>
-										<Badge variant={note.anchorState === "orphaned" ? "muted" : undefined}>
-											{formatKind(note.kind)}
-										</Badge>
+								<div className="comment-card__heading">
+									{comment.status === "open" ? (
+										<input
+											type="checkbox"
+											checked={selectedIds.has(comment.id)}
+											onChange={() => onToggleSelection(comment.id)}
+											aria-label={`Select ${commentSummary(comment)} for AI`}
+										/>
+									) : undefined}
+									<div>
+										<strong>{reviewIntentPresentation[comment.intent].label}</strong>
+										<span>{formatCommentLocation(comment)}</span>
 									</div>
 								</div>
-								<p>{note.body}</p>
-								{note.resolution ? (
-									<div className="note-resolution">
-										<strong>{formatStatus(note.status)}</strong>
-										{note.resolution.summary ?? note.resolution.blockedReason}
-										{note.resolution.verification ? (
-											<span>Verified: {note.resolution.verification}</span>
-										) : undefined}
-									</div>
+								<p>{comment.body}</p>
+								{comment.status === "in_progress" ? (
+									<div className="comment-result">An AI agent is working on this comment.</div>
 								) : undefined}
-								<div className="note-card__actions">
+								{comment.result ? <ResultCard comment={comment} /> : undefined}
+								<div className="comment-card__actions">
 									<Button
 										variant="ghost"
 										size="icon"
-										onClick={() => onReveal(note.id)}
-										disabled={!note.anchor || note.anchorState === "orphaned"}
-										aria-label={`Reveal ${noteSummary(note)} in editor`}
-										title="Reveal note in editor"
+										onClick={() => onReveal(comment.id)}
+										disabled={!comment.anchor || comment.anchorState === "orphaned"}
+										aria-label={`Reveal ${commentSummary(comment)} in editor`}
+										title="Reveal in editor"
 									>
 										<Eye aria-hidden="true" size={13} />
 									</Button>
-									<Button
-										variant="ghost"
-										size="icon"
-										aria-label={`Edit ${noteSummary(note)}`}
-										title="Edit note"
-										onClick={() => setEditing({ id: note.id, body: note.body, kind: note.kind })}
-									>
-										<Pencil aria-hidden="true" size={13} />
-									</Button>
-									<Button
-										variant="ghost"
-										size="sm"
-										aria-label={
-											note.status === "resolved"
-												? `Reopen ${noteSummary(note)}`
-												: `Resolve ${noteSummary(note)}`
-										}
-										title={note.status === "resolved" ? "Reopen note" : "Resolve note"}
-										onClick={() => onToggleResolved(note)}
-									>
-										{note.status === "resolved" ? "Reopen" : "Resolve"}
-									</Button>
-									<Button
-										variant="ghost"
-										size="icon"
-										aria-label={`Delete ${noteSummary(note)}`}
-										title="Delete note"
-										onClick={() => onDelete(note.id)}
-									>
-										<Trash2 aria-hidden="true" size={13} />
-									</Button>
+									{comment.status === "open" ? (
+										<Button
+											variant="ghost"
+											size="icon"
+											aria-label={`Edit ${commentSummary(comment)}`}
+											title="Edit comment"
+											onClick={() =>
+												setEditing({
+													id: comment.id,
+													version: comment.version,
+													body: comment.body,
+													intent: comment.intent
+												})
+											}
+										>
+											<Pencil aria-hidden="true" size={13} />
+										</Button>
+									) : undefined}
+									{comment.status !== "in_progress" ? (
+										<Button
+											variant="ghost"
+											size="icon"
+											aria-label={`Delete ${commentSummary(comment)}`}
+											title="Delete comment"
+											onClick={() => onDelete(comment.id)}
+										>
+											<Trash2 aria-hidden="true" size={13} />
+										</Button>
+									) : undefined}
 								</div>
 							</>
 						)}
@@ -601,6 +691,52 @@ function ReviewNoteGroups({
 			</div>
 		</section>
 	));
+}
+
+function ResultCard({ comment }: { readonly comment: ReviewComment }) {
+	const result = comment.result!;
+	if (result.outcome === "unresolved") {
+		return (
+			<div className="comment-result">
+				<strong>Couldn’t resolve</strong>
+				<span>{result.explanation}</span>
+				{result.suggestedNewComment ? (
+					<>
+						<strong>Suggested new comment</strong>
+						<span>“{result.suggestedNewComment}”</span>
+					</>
+				) : undefined}
+			</div>
+		);
+	}
+	return (
+		<div className="comment-result">
+			<strong>Resolved by {result.client}</strong>
+			<span>{result.summary}</span>
+			{result.changedFiles.length ? (
+				<>
+					<strong>Changed files</strong>
+					<ul>
+						{result.changedFiles.map((file) => (
+							<li key={file}>{file}</li>
+						))}
+					</ul>
+				</>
+			) : undefined}
+			{result.verification ? (
+				<>
+					<strong>Verification</strong>
+					<span>{result.verification}</span>
+				</>
+			) : undefined}
+			{result.limitations ? (
+				<>
+					<strong>Limitations</strong>
+					<span>{result.limitations}</span>
+				</>
+			) : undefined}
+		</div>
+	);
 }
 
 function reduceRemoteReviewState(state: RemoteReviewState, action: RemoteReviewAction): RemoteReviewState {
@@ -613,48 +749,51 @@ function reduceRemoteReviewState(state: RemoteReviewState, action: RemoteReviewA
 	return { status: "ready", envelope: action.envelope };
 }
 
-function groupNotes(notes: readonly ReviewNote[]): [string, ReviewNote[]][] {
-	const groups = new Map<string, ReviewNote[]>();
-	for (const note of notes) {
-		const filePath = note.anchor?.filePath ?? "Unattached comments";
+function groupComments(comments: readonly ReviewComment[]): [string, ReviewComment[]][] {
+	const groups = new Map<string, ReviewComment[]>();
+	for (const comment of comments) {
+		const filePath = comment.anchor?.filePath ?? "Needs reattachment";
 		const group = groups.get(filePath) ?? [];
-		group.push(note);
+		group.push(comment);
 		groups.set(filePath, group);
 	}
 	return [...groups.entries()];
 }
 
-function formatNoteLocation(note: ReviewNote): string {
-	if (!note.anchor || note.anchorState === "orphaned") {
-		return "Location unavailable";
+function formatCommentLocation(comment: ReviewComment): string {
+	if (!comment.anchor || comment.anchorState === "orphaned") {
+		return "Needs reattachment";
 	}
-	const range = note.anchor.range;
+	const range = comment.anchor.range;
 	const lines =
 		range.startLine === range.endLine ? `Line ${range.startLine}` : `Lines ${range.startLine}–${range.endLine}`;
-	return note.anchorState === "moved" ? `${lines} · moved` : lines;
+	return comment.anchorState === "moved" ? `${lines} · moved` : lines;
 }
 
-function formatKind(kind: ReviewNoteKind): string {
-	return { change: "Change", question: "Question", explain: "Explain", test: "Test" }[kind];
+function commentSummary(comment: ReviewComment): string {
+	const summary = comment.body.replace(/\s+/g, " ").trim();
+	return `comment “${summary.length > 60 ? `${summary.slice(0, 57)}…` : summary}”`;
 }
 
-function formatStatus(status: ReviewNote["status"]): string {
+function normalizeWebviewState(value: unknown): ReviewWebviewState {
+	if (value === true || value === false) {
+		return { showResolved: value, selectedCommentIds: [], selectionInitialized: false };
+	}
+	if (!value || typeof value !== "object") {
+		return { showResolved: false, selectedCommentIds: [], selectionInitialized: false };
+	}
+	const state = value as Partial<ReviewWebviewState>;
 	return {
-		draft: "Open",
-		in_progress: "In progress",
-		addressed: "Addressed",
-		blocked: "Blocked",
-		resolved: "Resolved"
-	}[status];
+		showResolved: state.showResolved === true,
+		selectedCommentIds: Array.isArray(state.selectedCommentIds)
+			? state.selectedCommentIds.filter((id): id is string => typeof id === "string")
+			: [],
+		selectionInitialized: state.selectionInitialized === true
+	};
 }
 
-function isActionableStatus(status: ReviewNote["status"]): boolean {
-	return status === "draft" || status === "in_progress" || status === "blocked";
-}
-
-function noteSummary(note: ReviewNote): string {
-	const summary = note.body.replace(/\s+/g, " ").trim();
-	return `note “${summary.length > 60 ? `${summary.slice(0, 57)}…` : summary}”`;
+function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
+	return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function isStateEnvelope(value: unknown): value is ReviewPanelStateEnvelope {
@@ -670,7 +809,7 @@ function getErrorMessage(error: unknown): string {
 function diagnosticStateData(envelope: ReviewPanelStateEnvelope) {
 	return {
 		revision: envelope.revision,
-		noteCount: envelope.value.notes.length,
+		commentCount: envelope.value.comments.length,
 		hasActiveFile: envelope.value.workspace.activeFile !== undefined
 	};
 }

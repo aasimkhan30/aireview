@@ -14,7 +14,7 @@ Review data is private user data, not repository content. Each canonical workspa
 
 Set `REQUEST_CHANGES_DATA_DIR` to override the location.
 
-Review comments use versioned anchors containing their URI, range, selected-text hash, and bounded surrounding context. Anchors are reconciled when documents open or change; moved comments are reattached, while deleted or ambiguous selections are retained as orphaned comments.
+Review comments use versioned anchors containing their URI, range, selected-text hash, and bounded surrounding context. Anchors are reconciled when documents open or change; moved comments are reattached, while deleted or ambiguous selections are retained and shown as needing reattachment.
 
 Reusable webview infrastructure is split between a surface-neutral `WebviewSession`, the sidebar `WebviewViewHost`, and a `WebviewPanelHost` used by Settings. HTML, CSP, resource, transport, visibility, and disposal behavior remain shared.
 
@@ -64,7 +64,7 @@ Open **Request Changes: Open Settings** or use the gear in the Review Comments v
 
 The integration grid tracks Workspace and User scope independently. Request Changes only removes configuration entries it manages; externally configured entries are identified and can be opened for manual editing without being overwritten.
 
-The MCP server exposes one read tool named `requestchanges`, status tools for claiming and reporting comments, resources for open and individual comments, and an `address_review_comments` prompt. Its server instructions tell clients not to use Request Changes unless the user explicitly asks for it.
+The MCP server exposes `requestchanges`, `claim_review_comments`, `complete_review_comments`, and `get_review_status`, resources for open and individual comments, and a `resolve_review_comments` prompt. Claims require exact IDs and versions, expire after one hour, and use opaque tokens. Its server instructions tell clients not to use Request Changes unless the user explicitly asks for it.
 
 ## Publishing
 
@@ -72,7 +72,7 @@ The [Publish VS Code Marketplace](.github/workflows/publish.yml) workflow has se
 
 Preview releases run daily at 08:17 UTC when `main` has changed since the last successful preview. Choose **preview** in the manual workflow to publish the current `main` commit even when it already has a preview. Preview versions encode an ephemeral UTC timestamp as `YYYYMMDD.HHmmss.0`, with the numeric time component omitting any leading zero. For example, `20260715.30004.0` represents 03:00:04 UTC. Neither `package.json` nor `package-lock.json` is committed. Splitting the timestamp keeps every component within Visual Studio Marketplace's numeric limit. Because these versions sort above the stable `0.0.x` line, preview users intentionally remain on the preview track. Their GitHub releases use `preview-v<version>` tags and are marked as prereleases.
 
-Stable releases only run manually. Choose **stable** to increment the committed patch version (`0.0.1` to `0.0.2` to `0.0.3`), verify it, commit and tag the version, publish it, and create a GitHub release containing the VSIX and MCP server. A prepared tag without a GitHub release is treated as an interrupted publication and safely retried instead of bumping again.
+Stable releases only run manually. Choose **stable** to increment the committed patch version, verify it, commit and tag the version, publish it, and create a GitHub release containing the VSIX and MCP server. A prepared tag without a GitHub release is treated as an interrupted publication and safely retried instead of bumping again.
 
 Publishing uses Microsoft Entra workload identity federation instead of a long-lived Personal Access Token. One-time setup is required:
 

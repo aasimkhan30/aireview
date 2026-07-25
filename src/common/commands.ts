@@ -7,8 +7,7 @@ export const enum RequestChangesCommand {
 	SaveComment = "requestchanges.comment.save",
 	CancelCommentEdit = "requestchanges.comment.cancelEdit",
 	DeleteComment = "requestchanges.comment.delete",
-	ResolveComment = "requestchanges.comment.resolve",
-	ReopenComment = "requestchanges.comment.reopen",
+	ClearResolvedComments = "requestchanges.clearResolvedComments",
 	ReviewViewFocus = "requestchanges.reviewView.focus",
 	ReviewViewOpen = "requestchanges.reviewView.open",
 	CodexOpenSidebar = "chatgpt.openSidebar",
@@ -25,8 +24,7 @@ export interface CommandArgumentTypeMapping {
 	[RequestChangesCommand.SaveComment]: [comment: unknown];
 	[RequestChangesCommand.CancelCommentEdit]: [comment: unknown];
 	[RequestChangesCommand.DeleteComment]: [value: unknown];
-	[RequestChangesCommand.ResolveComment]: [thread: unknown];
-	[RequestChangesCommand.ReopenComment]: [thread: unknown];
+	[RequestChangesCommand.ClearResolvedComments]: [];
 	[RequestChangesCommand.ReviewViewFocus]: [];
 	[RequestChangesCommand.ReviewViewOpen]: [];
 	[RequestChangesCommand.CodexOpenSidebar]: [];
@@ -43,8 +41,7 @@ export interface CommandResultTypeMapping {
 	[RequestChangesCommand.SaveComment]: void;
 	[RequestChangesCommand.CancelCommentEdit]: void;
 	[RequestChangesCommand.DeleteComment]: void;
-	[RequestChangesCommand.ResolveComment]: void;
-	[RequestChangesCommand.ReopenComment]: void;
+	[RequestChangesCommand.ClearResolvedComments]: void;
 	[RequestChangesCommand.ReviewViewFocus]: void;
 	[RequestChangesCommand.ReviewViewOpen]: void;
 	[RequestChangesCommand.CodexOpenSidebar]: void;

@@ -6,9 +6,9 @@ import { Disposable } from "../util/vs/base/common/lifecycle";
 import type { IReviewCommentService } from "./reviewCommentService";
 import type { IReviewPanelStateService } from "./reviewPanelStateService";
 import {
-	normalizeDeleteReviewNoteParams,
-	normalizeReviewNoteIdParams,
-	normalizeUpdateReviewNoteParams
+	normalizeEditOpenCommentParams,
+	normalizeReviewCommentIdParams,
+	normalizeSelectedReviewCommentsParams
 } from "./reviewValidation";
 
 export class ReviewWebviewController extends Disposable {
@@ -31,30 +31,43 @@ export class ReviewWebviewController extends Disposable {
 			)
 		);
 		this._register(
-			connection.onRequest(ReviewRpc.updateNote, (params: unknown) =>
-				this.runRequest("note.update", () => stateService.updateNote(normalizeUpdateReviewNoteParams(params)))
-			)
-		);
-		this._register(
-			connection.onRequest(ReviewRpc.deleteNote, (params: unknown) =>
-				this.runRequest("note.delete", () =>
-					stateService.deleteNote(normalizeDeleteReviewNoteParams(params).id)
+			connection.onRequest(ReviewRpc.editOpenComment, (params: unknown) =>
+				this.runRequest("comment.edit", () =>
+					stateService.editOpenComment(normalizeEditOpenCommentParams(params))
 				)
 			)
 		);
 		this._register(
-			connection.onRequest(ReviewRpc.revealNote, (params: unknown) =>
-				this.runRequest("note.reveal", () => commentService.revealNote(normalizeReviewNoteIdParams(params).id))
+			connection.onRequest(ReviewRpc.deleteComment, (params: unknown) =>
+				this.runRequest("comment.delete", () =>
+					stateService.deleteComment(normalizeReviewCommentIdParams(params).id)
+				)
 			)
 		);
 		this._register(
-			connection.onRequest(ReviewRpc.previewBundle, () =>
-				this.runRequest("bundle.preview", () => stateService.previewBundle())
+			connection.onRequest(ReviewRpc.revealComment, (params: unknown) =>
+				this.runRequest("comment.reveal", () =>
+					commentService.revealComment(normalizeReviewCommentIdParams(params).id)
+				)
 			)
 		);
 		this._register(
-			connection.onRequest(ReviewRpc.copyBundle, () =>
-				this.runRequest("bundle.copy", () => stateService.copyBundle())
+			connection.onRequest(ReviewRpc.previewComments, (params: unknown) =>
+				this.runRequest("comments.preview", () =>
+					stateService.previewComments(normalizeSelectedReviewCommentsParams(params))
+				)
+			)
+		);
+		this._register(
+			connection.onRequest(ReviewRpc.copyComments, (params: unknown) =>
+				this.runRequest("comments.copy", () =>
+					stateService.copyComments(normalizeSelectedReviewCommentsParams(params))
+				)
+			)
+		);
+		this._register(
+			connection.onRequest(ReviewRpc.clearResolvedComments, () =>
+				this.runRequest("comments.clearResolved", () => stateService.clearResolvedComments())
 			)
 		);
 		this._register(

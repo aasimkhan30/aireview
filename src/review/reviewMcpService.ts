@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
-import type { ReviewNote } from "../common/reviewProtocol";
 import { IDiagnosticsService } from "../diagnostics/diagnosticsService";
 import { IExtensionContextService } from "../services/extensionContextService";
 import { createServiceIdentifier } from "../util/di";
 import { Disposable } from "../util/vs/base/common/lifecycle";
+import { createReviewCommentRequests } from "./reviewBundle";
 import { IReviewStore } from "./reviewStore";
 
 const mcpProviderId = "requestchanges.mcpProvider";
@@ -62,7 +62,7 @@ export class ReviewMcpService extends Disposable implements IReviewMcpService {
 			vscode.lm.registerTool(languageModelToolName, {
 				invoke: async () => {
 					const state = await reviewStore.getState();
-					const comments = state.notes.filter((note) => isActionable(note));
+					const comments = state.comments.filter((comment) => comment.status === "open");
 					diagnostics.info("reviewState", "languageModelTool.invoked", () => ({
 						commentCount: comments.length
 					}));
@@ -70,10 +70,11 @@ export class ReviewMcpService extends Disposable implements IReviewMcpService {
 						new vscode.LanguageModelTextPart(
 							JSON.stringify(
 								{
+									workspace: state.workspace,
 									revision: state.revision,
 									overallInstructions: state.effectiveInstructions,
 									commentCount: comments.length,
-									comments
+									comments: createReviewCommentRequests(comments)
 								},
 								undefined,
 								2
@@ -85,8 +86,4 @@ export class ReviewMcpService extends Disposable implements IReviewMcpService {
 			})
 		);
 	}
-}
-
-function isActionable(note: ReviewNote): boolean {
-	return note.status === "draft" || note.status === "in_progress" || note.status === "blocked";
 }

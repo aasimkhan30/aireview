@@ -18,10 +18,10 @@ async function run() {
 	await writeFile(
 		join(ledgerDirectory, "review-state.json"),
 		`${JSON.stringify({
-			version: 3,
+			version: 4,
 			revision: 0,
 			workspace: { root: canonicalWorkspace, name: "workspace" },
-			notes: [createNote()],
+			comments: [createComment()],
 			effectiveInstructions: "Keep the public API stable.",
 			selectedTarget: "codex",
 			updatedAt: "2026-07-15T00:00:00.000Z"
@@ -49,22 +49,35 @@ async function run() {
 		const tools = await client.listTools();
 		assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
 			"claim_review_comments",
+			"complete_review_comments",
 			"get_review_status",
-			"report_comments_addressed",
-			"report_comments_blocked",
 			"requestchanges"
 		]);
 		const context = await client.callTool({ name: "requestchanges", arguments: {} });
 		assert.equal(context.isError, undefined);
 		assert.match(context.content[0].text, /"commentCount": 1/);
+		assert.match(context.content[0].text, /"version": 1/);
 		assert.match(context.content[0].text, /Keep the public API stable/);
-		await client.callTool({ name: "claim_review_comments", arguments: {} });
+		const emptyClaim = await client.callTool({
+			name: "claim_review_comments",
+			arguments: { comments: [] }
+		});
+		assert.equal(emptyClaim.isError, true);
+		const claim = await client.callTool({
+			name: "claim_review_comments",
+			arguments: { comments: [{ commentId: "RC-1", expectedVersion: 1 }] }
+		});
+		const claimResult = JSON.parse(claim.content[0].text).results[0];
+		assert.equal(claimResult.accepted, true);
 		await client.callTool({
-			name: "report_comments_addressed",
+			name: "complete_review_comments",
 			arguments: {
 				results: [
 					{
-						commentId: "note-1",
+						commentId: "RC-1",
+						expectedVersion: 1,
+						claimToken: claimResult.claimToken,
+						outcome: "resolved",
 						summary: "Kept the exported signature stable.",
 						changedFiles: ["src/index.ts"],
 						verification: "npm test"
@@ -73,8 +86,8 @@ async function run() {
 			}
 		});
 		const status = await client.callTool({ name: "get_review_status", arguments: {} });
-		assert.match(status.content[0].text, /"addressed": 1/);
-		const prompt = await client.getPrompt({ name: "address_review_comments", arguments: {} });
+		assert.match(status.content[0].text, /"resolved": 1/);
+		const prompt = await client.getPrompt({ name: "resolve_review_comments", arguments: {} });
 		assert.match(prompt.messages[0].content.text, /Use the requestchanges tool/);
 		assert.match(prompt.messages[0].content.text, /summary of each individual comment/);
 		const resource = await client.readResource({ uri: "requestchanges://comments/open" });
@@ -86,12 +99,13 @@ async function run() {
 	}
 }
 
-function createNote() {
+function createComment() {
 	return {
-		id: "note-1",
+		id: "RC-1",
+		version: 1,
 		body: "Do not change the public signature.",
-		kind: "change",
-		status: "draft",
+		intent: "change",
+		status: "open",
 		anchorState: "orphaned",
 		createdAt: "2026-07-15T00:00:00.000Z",
 		updatedAt: "2026-07-15T00:00:00.000Z"

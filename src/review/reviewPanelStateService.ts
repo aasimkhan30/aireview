@@ -1,25 +1,30 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import * as vscode from "vscode";
+import { RequestChangesCommand } from "../common/commands";
 import type {
 	AddReviewCommentParams,
+	ClearResolvedCommentsResult,
+	EditOpenCommentParams,
 	ReviewAnchor,
 	ReviewAnchorState,
-	ReviewBundlePreview,
+	ReviewComment,
+	ReviewCommentsPreview,
 	ReviewCopyResult,
-	ReviewNote,
 	ReviewPanelState,
 	ReviewPanelStateEnvelope,
 	ReviewRange,
-	UpdateReviewNoteParams,
+	SelectedReviewCommentsParams,
 	WorkspaceSnapshot
 } from "../common/reviewProtocol";
 import { Emitter, type Event } from "../common/emitter";
 import { IDiagnosticsService } from "../diagnostics/diagnosticsService";
+import { ICommandRegistrationService } from "../services/commandRegistrationService";
 import { createServiceIdentifier } from "../util/di";
 import { Disposable } from "../util/vs/base/common/lifecycle";
+import { buildReviewCommentsMarkdown, createReviewCommentRequests } from "./reviewBundle";
+import { selectOpenReviewComments } from "./reviewSelection";
 import { IReviewStore } from "./reviewStore";
-import { buildReviewBundle } from "./reviewBundle";
 
 export const IReviewPanelStateService = createServiceIdentifier<IReviewPanelStateService>("reviewPanelStateService");
 
@@ -29,12 +34,13 @@ export interface IReviewPanelStateService {
 	captureActiveTextEditor(): void;
 	getState(): Promise<ReviewPanelStateEnvelope>;
 	refresh(): Promise<ReviewPanelStateEnvelope>;
-	addNote(input: AddReviewCommentParams): Promise<ReviewPanelStateEnvelope>;
-	updateNote(input: UpdateReviewNoteParams): Promise<ReviewPanelStateEnvelope>;
-	updateNoteAnchor(id: string, anchor: ReviewAnchor, anchorState: ReviewAnchorState): Promise<void>;
-	deleteNote(id: string): Promise<ReviewPanelStateEnvelope>;
-	previewBundle(): Promise<ReviewBundlePreview>;
-	copyBundle(): Promise<ReviewCopyResult>;
+	addComment(input: AddReviewCommentParams): Promise<ReviewPanelStateEnvelope>;
+	editOpenComment(input: EditOpenCommentParams): Promise<ReviewPanelStateEnvelope>;
+	updateCommentAnchor(id: string, anchor: ReviewAnchor, anchorState: ReviewAnchorState): Promise<void>;
+	deleteComment(id: string): Promise<ReviewPanelStateEnvelope>;
+	clearResolvedComments(): Promise<ClearResolvedCommentsResult>;
+	previewComments(input: SelectedReviewCommentsParams): Promise<ReviewCommentsPreview>;
+	copyComments(input: SelectedReviewCommentsParams): Promise<ReviewCopyResult>;
 }
 
 export class ReviewPanelStateService extends Disposable implements IReviewPanelStateService {
@@ -52,6 +58,7 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 
 	constructor(
 		@IReviewStore private readonly reviewStore: IReviewStore,
+		@ICommandRegistrationService commandRegistrationService: ICommandRegistrationService,
 		@IDiagnosticsService private readonly diagnostics: IDiagnosticsService
 	) {
 		super();
@@ -71,6 +78,29 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 				this.requestRefresh();
 			})
 		);
+		commandRegistrationService.registerCommand(RequestChangesCommand.ClearResolvedComments, async () => {
+			const state = await this.getState();
+			const resolvedCount = state.value.comments.filter((comment) => comment.status === "resolved").length;
+			if (resolvedCount === 0) {
+				void vscode.window.showInformationMessage("There are no resolved comments to clear.");
+				return;
+			}
+			const action = `Clear ${resolvedCount}`;
+			const confirmed = await vscode.window.showWarningMessage(
+				`Remove ${resolvedCount} resolved ${
+					resolvedCount === 1 ? "comment" : "comments"
+				} from this workspace?\n\nThis permanently removes their comments and AI results.`,
+				{ modal: true },
+				action
+			);
+			if (confirmed !== action) {
+				return;
+			}
+			const result = await this.clearResolvedComments();
+			void vscode.window.showInformationMessage(
+				`Cleared ${result.clearedCount} resolved ${result.clearedCount === 1 ? "comment" : "comments"}.`
+			);
+		});
 	}
 
 	captureActiveTextEditor(): void {
@@ -94,23 +124,27 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 		return this.refreshPromise;
 	}
 
-	async addNote(input: AddReviewCommentParams): Promise<ReviewPanelStateEnvelope> {
-		const operation = this.diagnostics.startOperation("reviewState", "note.add");
+	async addComment(input: AddReviewCommentParams): Promise<ReviewPanelStateEnvelope> {
+		const operation = this.diagnostics.startOperation("reviewState", "comment.add");
 		const now = new Date().toISOString();
-		const note: ReviewNote = {
+		const comment: ReviewComment = {
 			id: input.id ?? randomUUID(),
+			version: 1,
 			body: input.body.trim(),
-			kind: input.kind ?? "change",
-			status: "draft",
+			intent: input.intent ?? "change",
+			status: "open",
 			anchor: input.anchor,
 			anchorState: input.anchor ? "attached" : "orphaned",
 			createdAt: now,
 			updatedAt: now
 		};
 		try {
-			await this.reviewStore.addNote(note);
+			await this.reviewStore.addComment(comment);
 			const state = await this.refresh();
-			operation.complete(() => ({ revision: state.revision, noteCount: state.value.notes.length }));
+			operation.complete(() => ({
+				revision: state.revision,
+				commentCount: state.value.comments.length
+			}));
 			return state;
 		} catch (error) {
 			operation.fail(error);
@@ -118,39 +152,28 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 		}
 	}
 
-	async updateNote(input: UpdateReviewNoteParams): Promise<ReviewPanelStateEnvelope> {
-		const state = await this.reviewStore.getState();
-		const current = state.notes.find((note) => note.id === input.id);
-		if (!current) {
+	async editOpenComment(input: EditOpenCommentParams): Promise<ReviewPanelStateEnvelope> {
+		const updated = await this.reviewStore.editOpenComment(input);
+		if (!updated) {
 			throw new Error("Review comment not found");
 		}
-		const note: ReviewNote = {
-			...current,
-			body: input.body ?? current.body,
-			kind: input.kind ?? current.kind,
-			status: input.status ?? current.status,
-			resolution: input.status === "draft" ? undefined : (input.resolution ?? current.resolution),
-			updatedAt: new Date().toISOString()
-		};
-		await this.reviewStore.updateNote(note);
 		return this.refresh();
 	}
 
-	async updateNoteAnchor(id: string, anchor: ReviewAnchor, anchorState: ReviewAnchorState): Promise<void> {
-		const state = await this.reviewStore.getState();
-		const current = state.notes.find((note) => note.id === id);
-		if (!current) {
-			return;
-		}
-		await this.reviewStore.updateNote({ ...current, anchor, anchorState, updatedAt: new Date().toISOString() });
+	async updateCommentAnchor(id: string, anchor: ReviewAnchor, anchorState: ReviewAnchorState): Promise<void> {
+		await this.reviewStore.updateCommentAnchor(id, anchor, anchorState);
 	}
 
-	async deleteNote(id: string): Promise<ReviewPanelStateEnvelope> {
-		const operation = this.diagnostics.startOperation("reviewState", "note.delete");
+	async deleteComment(id: string): Promise<ReviewPanelStateEnvelope> {
+		const operation = this.diagnostics.startOperation("reviewState", "comment.delete");
 		try {
-			const deleted = await this.reviewStore.deleteNote(id);
+			const deleted = await this.reviewStore.deleteComment(id);
 			const state = deleted ? await this.refresh() : await this.getState();
-			operation.complete(() => ({ deleted, revision: state.revision, noteCount: state.value.notes.length }));
+			operation.complete(() => ({
+				deleted,
+				revision: state.revision,
+				commentCount: state.value.comments.length
+			}));
 			return state;
 		} catch (error) {
 			operation.fail(error);
@@ -158,30 +181,42 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 		}
 	}
 
-	async previewBundle(): Promise<ReviewBundlePreview> {
+	async clearResolvedComments(): Promise<ClearResolvedCommentsResult> {
+		const operation = this.diagnostics.startOperation("reviewState", "comments.clearResolved");
+		try {
+			const clearedCount = await this.reviewStore.clearResolvedComments();
+			const state = clearedCount ? await this.refresh() : await this.getState();
+			operation.complete(() => ({ clearedCount, revision: state.revision }));
+			return { clearedCount, state };
+		} catch (error) {
+			operation.fail(error);
+			throw error;
+		}
+	}
+
+	async previewComments(input: SelectedReviewCommentsParams): Promise<ReviewCommentsPreview> {
 		const state = await this.reviewStore.getState();
-		const notes = state.notes.filter((note) => isActionableStatus(note.status));
+		const comments = selectOpenReviewComments(state.comments, input.commentIds);
 		const filePaths = new Set(
-			notes.map((note) => note.anchor?.filePath).filter((value): value is string => Boolean(value))
+			comments.map((comment) => comment.anchor?.filePath).filter((value): value is string => Boolean(value))
 		);
 		return {
-			markdown: buildReviewBundle(state.effectiveInstructions, notes),
+			markdown: buildReviewCommentsMarkdown(state.effectiveInstructions, createReviewCommentRequests(comments)),
 			fileCount: filePaths.size,
-			noteCount: notes.length,
-			orphanedCount: notes.filter((note) => note.anchorState === "orphaned").length
+			commentCount: comments.length,
+			needsReattachmentCount: comments.filter((comment) => comment.anchorState === "orphaned").length
 		};
 	}
 
-	async copyBundle(): Promise<ReviewCopyResult> {
-		const operation = this.diagnostics.startOperation("reviewState", "bundle.copy");
+	async copyComments(input: SelectedReviewCommentsParams): Promise<ReviewCopyResult> {
+		const operation = this.diagnostics.startOperation("reviewState", "comments.copy");
 		try {
-			const preview = await this.previewBundle();
-			if (preview.noteCount === 0) {
-				throw new Error("Add at least one open review comment before copying");
-			}
+			const preview = await this.previewComments(input);
 			await vscode.env.clipboard.writeText(preview.markdown);
-			const message = "Review bundle copied to the clipboard.";
-			operation.complete(() => ({ noteCount: preview.noteCount }));
+			const message = `${preview.commentCount} ${
+				preview.commentCount === 1 ? "comment" : "comments"
+			} copied for AI.`;
+			operation.complete(() => ({ commentCount: preview.commentCount }));
 			return { message };
 		} catch (error) {
 			operation.fail(error);
@@ -195,7 +230,7 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 			const state = await this.runRefreshLoop();
 			operation.complete(() => ({
 				revision: state.revision,
-				noteCount: state.value.notes.length,
+				commentCount: state.value.comments.length,
 				hasActiveFile: state.value.workspace.activeFile !== undefined
 			}));
 			return state;
@@ -216,6 +251,11 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 			accepted = { sourceId: this.sourceId, revision: ++this.revision, value };
 			this.latestState = accepted;
 			this.stateEmitter.fire(accepted);
+			void vscode.commands.executeCommand(
+				"setContext",
+				"requestchanges.hasResolvedComments",
+				value.comments.some((comment) => comment.status === "resolved")
+			);
 		} while (this.refreshRequested);
 		if (!accepted) {
 			throw new Error("Review state refresh completed without producing a snapshot");
@@ -238,10 +278,7 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 			this.getWorkspaceSnapshot(),
 			this.reviewStore.getState()
 		]);
-		return {
-			workspace,
-			notes: persistedState.notes
-		};
+		return { workspace, comments: persistedState.comments };
 	}
 
 	private async getWorkspaceSnapshot(): Promise<WorkspaceSnapshot> {
@@ -273,10 +310,6 @@ export class ReviewPanelStateService extends Disposable implements IReviewPanelS
 	}
 }
 
-function isActionableStatus(status: ReviewNote["status"]): boolean {
-	return status === "draft" || status === "in_progress" || status === "blocked";
-}
-
 export function toReviewRange(range: vscode.Range): ReviewRange {
 	return {
 		startLine: range.start.line + 1,
@@ -298,13 +331,9 @@ async function getGitBranch(cwd: string | undefined, diagnostics: IDiagnosticsSe
 	const operation = diagnostics.startOperation("git", "branch.resolve");
 	try {
 		const stdout = await new Promise<string>((resolve, reject) => {
-			execFile("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd, windowsHide: true }, (error, output) => {
-				if (error) {
-					reject(error);
-				} else {
-					resolve(output);
-				}
-			});
+			execFile("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd, windowsHide: true }, (error, output) =>
+				error ? reject(error) : resolve(output)
+			);
 		});
 		const branch = stdout.trim();
 		operation.complete(() => ({ found: branch.length > 0 }));

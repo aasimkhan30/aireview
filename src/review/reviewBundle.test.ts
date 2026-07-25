@@ -1,48 +1,46 @@
 import { describe, expect, it } from "vitest";
-import type { ReviewNote } from "../common/reviewProtocol";
+import type { ReviewComment } from "../common/reviewProtocol";
 import { createReviewAnchor } from "./reviewAnchors";
-import { buildReviewBundle } from "./reviewBundle";
+import { buildReviewCommentsMarkdown, createReviewCommentRequests } from "./reviewBundle";
 
-describe("buildReviewBundle", () => {
-	it("groups actionable notes by file with overall instructions and selected code", () => {
-		const note = createNote("change", "Use the cached value here.");
-		const resolved = {
-			...createNote("test", "This should not be supplied by the caller."),
-			status: "resolved" as const
-		};
-		const markdown = buildReviewBundle(
+describe("review comment instructions", () => {
+	it("includes exact IDs, versions, intent guidance, instructions, and selected code", () => {
+		const comment = createComment("change", "Use the cached value here.");
+		const markdown = buildReviewCommentsMarkdown(
 			"Keep the public API stable.",
-			[note, resolved].filter((item) => item.status !== "resolved")
+			createReviewCommentRequests([comment])
 		);
 
+		expect(markdown).toContain("# Review comments");
 		expect(markdown).toContain("## Overall instructions\n\nKeep the public API stable.");
 		expect(markdown).toContain("## src/file.ts");
-		expect(markdown).toContain("### Lines 1–1 · change");
+		expect(markdown).toContain("### RC-change · Version 2 · Change code · Lines 1–1");
+		expect(markdown).toContain("Implement the requested modification.");
 		expect(markdown).toContain("const value = load();");
-		expect(markdown).not.toContain("supplied by the caller");
 	});
 
-	it("keeps orphaned notes visible and explains their missing location", () => {
-		const note: ReviewNote = {
-			...createNote("question", "Is this still needed?"),
+	it("gives questions non-editing guidance and identifies locations needing reattachment", () => {
+		const comment: ReviewComment = {
+			...createComment("question", "Is this still needed?"),
 			anchor: undefined,
 			anchorState: "orphaned"
 		};
-		const markdown = buildReviewBundle("", [note]);
+		const markdown = buildReviewCommentsMarkdown("", createReviewCommentRequests([comment]));
 
-		expect(markdown).toContain("## Unattached notes");
-		expect(markdown).toContain("Location unavailable");
-		expect(markdown).toContain("could not be reattached");
+		expect(markdown).toContain("## Comments needing reattachment");
+		expect(markdown).toContain("Answer without changing code unless explicitly requested.");
+		expect(markdown).toContain("needs reattachment");
 	});
 });
 
-function createNote(kind: ReviewNote["kind"], body: string): ReviewNote {
+function createComment(intent: ReviewComment["intent"], body: string): ReviewComment {
 	const text = "const value = load();\n";
 	return {
-		id: `${kind}-note`,
+		id: `RC-${intent}`,
+		version: 2,
 		body,
-		kind,
-		status: "draft",
+		intent,
+		status: "open",
 		anchor: createReviewAnchor(text, "file:///workspace/src/file.ts", "src/file.ts", {
 			startLine: 1,
 			startCharacter: 1,

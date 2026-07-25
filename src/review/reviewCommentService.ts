@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import * as vscode from "vscode";
 import { RequestChangesCommand } from "../common/commands";
-import type { ReviewNote, ReviewPanelStateEnvelope } from "../common/reviewProtocol";
+import {
+	reviewIntentPresentation,
+	reviewStatusPresentation,
+	type ReviewComment as ReviewCommentData,
+	type ReviewPanelStateEnvelope
+} from "../common/reviewProtocol";
 import { IDiagnosticsService } from "../diagnostics/diagnosticsService";
 import { ICommandRegistrationService } from "../services/commandRegistrationService";
 import { createServiceIdentifier } from "../util/di";
@@ -15,7 +20,7 @@ export const IReviewCommentService = createServiceIdentifier<IReviewCommentServi
 export interface IReviewCommentService {
 	readonly _serviceBrand: undefined;
 	startAnnotation(): Promise<void>;
-	revealNote(id: string): Promise<void>;
+	revealComment(id: string): Promise<void>;
 }
 
 export class ReviewCommentService extends Disposable implements IReviewCommentService {
@@ -32,8 +37,8 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 			overviewRulerLane: vscode.OverviewRulerLane.Right
 		})
 	);
-	private readonly threadsByNoteId = new Map<string, vscode.CommentThread>();
-	private readonly noteIdsByThread = new Map<vscode.CommentThread, string>();
+	private readonly threadsByCommentId = new Map<string, vscode.CommentThread>();
+	private readonly commentIdsByThread = new Map<vscode.CommentThread, string>();
 	private readonly reconciliationTimers = new Map<string, NodeJS.Timeout>();
 	private readonly editCommentDocumentUris = new Set<string>();
 	private pendingEditCommentDocumentTimer: NodeJS.Timeout | undefined;
@@ -87,17 +92,14 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 		this.commandRegistrationService.registerCommand(RequestChangesCommand.DeleteComment, (value) =>
 			this.deleteComment(value)
 		);
-		this.commandRegistrationService.registerCommand(RequestChangesCommand.ResolveComment, (value) =>
-			this.setThreadResolved(value, true)
-		);
-		this.commandRegistrationService.registerCommand(RequestChangesCommand.ReopenComment, (value) =>
-			this.setThreadResolved(value, false)
-		);
-
 		this._register(stateService.onDidChangeState((state) => this.syncState(state)));
 		this._register(
 			vscode.workspace.onDidChangeTextDocument((event) => {
-				if (this.latestState?.value.notes.some((note) => note.anchor?.uri === event.document.uri.toString())) {
+				if (
+					this.latestState?.value.comments.some(
+						(comment) => comment.anchor?.uri === event.document.uri.toString()
+					)
+				) {
 					this.scheduleReconciliation(event.document);
 				}
 			})
@@ -105,7 +107,9 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 		this._register(
 			vscode.workspace.onDidOpenTextDocument((document) => {
 				this.claimPendingEditCommentDocument(document);
-				if (this.latestState?.value.notes.some((note) => note.anchor?.uri === document.uri.toString())) {
+				if (
+					this.latestState?.value.comments.some((comment) => comment.anchor?.uri === document.uri.toString())
+				) {
 					this.scheduleReconciliation(document);
 				}
 			})
@@ -140,7 +144,7 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 			return;
 		}
 		const thread = this.controller.createCommentThread(editor.document.uri, editor.selection, []);
-		thread.contextValue = "requestchanges.draft";
+		thread.contextValue = "requestchanges.newComment";
 		thread.label = "New review comment";
 		thread.canReply = true;
 		thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
@@ -149,27 +153,27 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 		}));
 	}
 
-	async revealNote(id: string): Promise<void> {
-		const note = this.latestState?.value.notes.find((candidate) => candidate.id === id);
-		if (!note?.anchor) {
+	async revealComment(id: string): Promise<void> {
+		const comment = this.latestState?.value.comments.find((candidate) => candidate.id === id);
+		if (!comment?.anchor) {
 			void vscode.window.showWarningMessage("This review comment is no longer attached to code.");
 			return;
 		}
-		const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(note.anchor.uri));
-		const resolved = resolveReviewAnchor(document.getText(), note.anchor);
+		const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(comment.anchor.uri));
+		const resolved = resolveReviewAnchor(document.getText(), comment.anchor);
 		if (resolved.state === "orphaned") {
-			await this.stateService.updateNoteAnchor(note.id, resolved.anchor, "orphaned");
+			await this.stateService.updateCommentAnchor(comment.id, resolved.anchor, "orphaned");
 			void vscode.window.showWarningMessage("This review comment is no longer attached to code.");
 			return;
 		}
-		if (!rangesEqual(resolved.anchor.range, note.anchor.range)) {
-			await this.stateService.updateNoteAnchor(note.id, resolved.anchor, "moved");
+		if (!rangesEqual(resolved.anchor.range, comment.anchor.range)) {
+			await this.stateService.updateCommentAnchor(comment.id, resolved.anchor, "moved");
 		}
 		const editor = await vscode.window.showTextDocument(document, { preserveFocus: false, preview: true });
 		const range = toVsCodeRange(resolved.anchor.range);
 		editor.selection = new vscode.Selection(range.start, range.end);
 		editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
-		const thread = this.threadsByNoteId.get(id);
+		const thread = this.threadsByCommentId.get(id);
 		if (thread) {
 			thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
 		}
@@ -197,17 +201,25 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 			vscode.workspace.asRelativePath(document.uri, false),
 			toReviewRange(range)
 		);
-		const state = await this.stateService.addNote({ id, body: parsed.body, kind: parsed.kind, anchor });
+		const state = await this.stateService.addComment({
+			id,
+			body: parsed.body,
+			intent: parsed.kind,
+			anchor
+		});
 		this.bindThread(id, thread);
-		const note = state.value.notes.find((candidate) => candidate.id === id);
-		if (note) {
-			this.syncNoteThread(note);
+		const comment = state.value.comments.find((candidate) => candidate.id === id);
+		if (comment) {
+			this.syncCommentThread(comment);
 		}
 		thread.collapsibleState = vscode.CommentThreadCollapsibleState.Collapsed;
 	}
 
 	private editComment(value: unknown): void {
 		if (!(value instanceof ReviewComment)) {
+			return;
+		}
+		if (value.status !== "open") {
 			return;
 		}
 		value.savedBody = value.body;
@@ -220,7 +232,7 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 		if (!(value instanceof ReviewComment)) {
 			return;
 		}
-		const parsed = this.parseSubmittedComment(commentBody(value.body), value.kind);
+		const parsed = this.parseSubmittedComment(commentBody(value.body), value.intent);
 		if (!parsed) {
 			return;
 		}
@@ -228,11 +240,17 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 			void vscode.window.showWarningMessage("Review comment cannot be empty.");
 			return;
 		}
-		await this.stateService.updateNote({ id: value.noteId, body: parsed.body, kind: parsed.kind });
+		await this.stateService.editOpenComment({
+			id: value.commentId,
+			expectedVersion: value.version,
+			body: parsed.body,
+			intent: parsed.kind
+		});
+		value.version += 1;
 		value.savedBody = parsed.body;
 		value.body = parsed.body;
-		value.kind = parsed.kind;
-		value.label = formatCommentKind(parsed.kind);
+		value.intent = parsed.kind;
+		value.label = formatCommentIntent(parsed.kind);
 		value.mode = vscode.CommentMode.Preview;
 		value.parent.comments = [...value.parent.comments];
 	}
@@ -251,88 +269,75 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 		if (!thread) {
 			return;
 		}
-		const noteId = this.noteIdsByThread.get(thread);
-		if (!noteId) {
+		const commentId = this.commentIdsByThread.get(thread);
+		if (!commentId) {
 			thread.dispose();
 			return;
 		}
-		await this.stateService.deleteNote(noteId);
-	}
-
-	private async setThreadResolved(value: unknown, resolved: boolean): Promise<void> {
-		if (!isCommentThread(value)) {
-			return;
-		}
-		const noteId = this.noteIdsByThread.get(value);
-		if (noteId) {
-			await this.stateService.updateNote({ id: noteId, status: resolved ? "resolved" : "draft" });
-		}
+		await this.stateService.deleteComment(commentId);
 	}
 
 	private syncState(state: ReviewPanelStateEnvelope): void {
 		this.latestState = state;
-		const activeIds = new Set(state.value.notes.map((note) => note.id));
-		for (const [noteId, thread] of this.threadsByNoteId) {
-			if (!activeIds.has(noteId)) {
-				this.unbindThread(noteId, thread);
+		const activeIds = new Set(state.value.comments.map((comment) => comment.id));
+		for (const [commentId, thread] of this.threadsByCommentId) {
+			if (!activeIds.has(commentId)) {
+				this.unbindThread(commentId, thread);
 			}
 		}
-		for (const note of state.value.notes) {
-			this.syncNoteThread(note);
+		for (const comment of state.value.comments) {
+			this.syncCommentThread(comment);
 		}
 		this.updateDecorations();
 		for (const document of vscode.workspace.textDocuments) {
-			if (state.value.notes.some((note) => note.anchor?.uri === document.uri.toString())) {
+			if (state.value.comments.some((comment) => comment.anchor?.uri === document.uri.toString())) {
 				this.scheduleReconciliation(document);
 			}
 		}
 	}
 
-	private syncNoteThread(note: ReviewNote): void {
-		let thread = this.threadsByNoteId.get(note.id);
-		if (!note.anchor || note.anchorState === "orphaned") {
+	private syncCommentThread(comment: ReviewCommentData): void {
+		let thread = this.threadsByCommentId.get(comment.id);
+		if (!comment.anchor || comment.anchorState === "orphaned") {
 			if (thread) {
-				this.unbindThread(note.id, thread);
+				this.unbindThread(comment.id, thread);
 			}
 			return;
 		}
 		if (!thread) {
 			thread = this.controller.createCommentThread(
-				vscode.Uri.parse(note.anchor.uri),
-				toVsCodeRange(note.anchor.range),
+				vscode.Uri.parse(comment.anchor.uri),
+				toVsCodeRange(comment.anchor.range),
 				[]
 			);
-			this.bindThread(note.id, thread);
+			this.bindThread(comment.id, thread);
 		}
-		thread.range = toVsCodeRange(note.anchor.range);
-		thread.label = `${formatCommentStatus(note.status)} · ${formatCommentKind(note.kind)} · ${note.anchor.filePath}`;
-		thread.contextValue = note.status === "resolved" ? "requestchanges.resolved" : "requestchanges.unresolved";
+		thread.range = toVsCodeRange(comment.anchor.range);
+		thread.label = `${formatCommentStatus(comment.status)} · ${formatCommentIntent(comment.intent)} · ${comment.anchor.filePath}`;
+		thread.contextValue = `requestchanges.${comment.status}`;
 		thread.state =
-			note.status === "resolved" ? vscode.CommentThreadState.Resolved : vscode.CommentThreadState.Unresolved;
+			comment.status === "resolved" ? vscode.CommentThreadState.Resolved : vscode.CommentThreadState.Unresolved;
 		thread.canReply = false;
 		const existing = thread.comments[0];
 		if (existing instanceof ReviewComment && existing.mode === vscode.CommentMode.Editing) {
 			return;
 		}
-		const comments: vscode.Comment[] = [new ReviewComment(note, thread)];
-		if (note.resolution) {
-			comments.push(new ReviewResolutionComment(note));
-		}
-		thread.comments = comments;
+		const humanComment = new ReviewComment(comment, thread);
+		thread.comments = comment.result ? [humanComment, new ReviewResultComment(comment)] : [humanComment];
 	}
 
-	private bindThread(noteId: string, thread: vscode.CommentThread): void {
-		const existing = this.threadsByNoteId.get(noteId);
+	private bindThread(commentId: string, thread: vscode.CommentThread): void {
+		const existing = this.threadsByCommentId.get(commentId);
 		if (existing && existing !== thread) {
-			this.unbindThread(noteId, existing);
+			this.unbindThread(commentId, existing);
 		}
-		this.threadsByNoteId.set(noteId, thread);
-		this.noteIdsByThread.set(thread, noteId);
+		this.threadsByCommentId.set(commentId, thread);
+		this.commentIdsByThread.set(thread, commentId);
 	}
 
-	private unbindThread(noteId: string, thread: vscode.CommentThread): void {
-		this.threadsByNoteId.delete(noteId);
-		this.noteIdsByThread.delete(thread);
+	private unbindThread(commentId: string, thread: vscode.CommentThread): void {
+		this.threadsByCommentId.delete(commentId);
+		this.commentIdsByThread.delete(thread);
 		thread.dispose();
 	}
 
@@ -355,28 +360,31 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 
 	private async reconcileDocument(document: vscode.TextDocument): Promise<void> {
 		const state = await this.stateService.getState();
-		for (const note of state.value.notes) {
-			if (!note.anchor || note.anchor.uri !== document.uri.toString()) {
+		for (const comment of state.value.comments) {
+			if (!comment.anchor || comment.anchor.uri !== document.uri.toString()) {
 				continue;
 			}
-			const resolved = resolveReviewAnchor(document.getText(), note.anchor);
+			const resolved = resolveReviewAnchor(document.getText(), comment.anchor);
 			const anchorState =
-				resolved.state === "attached" && note.anchorState === "moved" ? "moved" : resolved.state;
-			if (!rangesEqual(resolved.anchor.range, note.anchor.range) || anchorState !== note.anchorState) {
-				await this.stateService.updateNoteAnchor(note.id, resolved.anchor, anchorState);
+				resolved.state === "attached" && comment.anchorState === "moved" ? "moved" : resolved.state;
+			if (!rangesEqual(resolved.anchor.range, comment.anchor.range) || anchorState !== comment.anchorState) {
+				await this.stateService.updateCommentAnchor(comment.id, resolved.anchor, anchorState);
 			}
 		}
 	}
 
 	private updateDecorations(): void {
-		const notes = this.latestState?.value.notes ?? [];
+		const comments = this.latestState?.value.comments ?? [];
 		for (const editor of vscode.window.visibleTextEditors) {
 			const uri = editor.document.uri.toString();
-			const ranges = notes
+			const ranges = comments
 				.filter(
-					(note) => note.anchor?.uri === uri && note.anchorState !== "orphaned" && note.status !== "resolved"
+					(comment) =>
+						comment.anchor?.uri === uri &&
+						comment.anchorState !== "orphaned" &&
+						comment.status !== "resolved"
 				)
-				.map((note) => toVsCodeRange(note.anchor!.range));
+				.map((comment) => toVsCodeRange(comment.anchor!.range));
 			editor.setDecorations(this.decoration, ranges);
 		}
 	}
@@ -449,9 +457,9 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 		}
 	}
 
-	private parseSubmittedComment(value: string, defaultKind: ReviewNote["kind"]) {
+	private parseSubmittedComment(value: string, defaultIntent: ReviewCommentData["intent"]) {
 		try {
-			return parseReviewComment(value, defaultKind);
+			return parseReviewComment(value, defaultIntent);
 		} catch (error) {
 			void vscode.window.showWarningMessage(error instanceof Error ? error.message : String(error));
 			return undefined;
@@ -460,43 +468,71 @@ export class ReviewCommentService extends Disposable implements IReviewCommentSe
 }
 
 class ReviewComment implements vscode.Comment {
-	readonly noteId: string;
+	readonly commentId: string;
+	version: number;
+	readonly status: ReviewCommentData["status"];
 	body: string | vscode.MarkdownString;
 	savedBody: string | vscode.MarkdownString;
 	mode = vscode.CommentMode.Preview;
-	author = { name: "Request Changes" };
-	contextValue = "requestchanges.note";
-	kind: ReviewNote["kind"];
+	author = { name: "You" };
+	contextValue: string;
+	intent: ReviewCommentData["intent"];
 	label: string;
 	timestamp: Date;
 
 	constructor(
-		note: ReviewNote,
+		comment: ReviewCommentData,
 		readonly parent: vscode.CommentThread
 	) {
-		this.noteId = note.id;
-		this.body = note.body;
-		this.savedBody = note.body;
-		this.kind = note.kind;
-		this.label = formatCommentKind(note.kind);
-		this.timestamp = new Date(note.updatedAt);
+		this.commentId = comment.id;
+		this.version = comment.version;
+		this.status = comment.status;
+		this.body = comment.body;
+		this.savedBody = comment.body;
+		this.intent = comment.intent;
+		this.contextValue =
+			comment.status === "open"
+				? "requestchanges.openComment"
+				: comment.status === "in_progress"
+					? "requestchanges.workingComment"
+					: "requestchanges.terminalComment";
+		this.label = formatCommentIntent(comment.intent);
+		this.timestamp = new Date(comment.updatedAt);
 	}
 }
 
-class ReviewResolutionComment implements vscode.Comment {
-	body: string;
-	mode = vscode.CommentMode.Preview;
-	author: vscode.CommentAuthorInformation;
-	contextValue = "requestchanges.resolution";
-	label: string;
-	timestamp: Date;
+class ReviewResultComment implements vscode.Comment {
+	readonly mode = vscode.CommentMode.Preview;
+	readonly contextValue = "requestchanges.aiResult";
+	readonly author: vscode.CommentAuthorInformation;
+	readonly body: vscode.MarkdownString;
+	readonly timestamp: Date;
 
-	constructor(note: ReviewNote) {
-		const resolution = note.resolution!;
-		this.body = formatResolutionBody(note);
-		this.author = { name: resolution.client || "Coding agent" };
-		this.label = formatCommentStatus(note.status);
-		this.timestamp = new Date(resolution.updatedAt);
+	constructor(comment: ReviewCommentData) {
+		const result = comment.result!;
+		this.author = { name: result.client };
+		this.timestamp = new Date(result.completedAt);
+		const markdown = new vscode.MarkdownString();
+		if (result.outcome === "resolved") {
+			markdown.appendMarkdown(`**Resolved**\n\n${result.summary}`);
+			if (result.changedFiles.length) {
+				markdown.appendMarkdown(
+					`\n\n**Changed files**\n\n${result.changedFiles.map((file) => `- \`${file}\``).join("\n")}`
+				);
+			}
+			if (result.verification) {
+				markdown.appendMarkdown(`\n\n**Verification**\n\n${result.verification}`);
+			}
+			if (result.limitations) {
+				markdown.appendMarkdown(`\n\n**Limitations**\n\n${result.limitations}`);
+			}
+		} else {
+			markdown.appendMarkdown(`**Couldn’t resolve**\n\n${result.explanation}`);
+			if (result.suggestedNewComment) {
+				markdown.appendMarkdown(`\n\n**Suggested new comment**\n\n> ${result.suggestedNewComment}`);
+			}
+		}
+		this.body = markdown;
 	}
 }
 
@@ -517,31 +553,10 @@ function isCommentThread(value: unknown): value is vscode.CommentThread {
 	return Boolean(value && typeof value === "object" && "comments" in value && "uri" in value && "dispose" in value);
 }
 
-function formatCommentStatus(status: ReviewNote["status"]): string {
-	return {
-		draft: "Open",
-		in_progress: "In progress",
-		addressed: "Addressed",
-		blocked: "Blocked",
-		resolved: "Resolved"
-	}[status];
+function formatCommentStatus(status: ReviewCommentData["status"]): string {
+	return reviewStatusPresentation[status].label;
 }
 
-function formatCommentKind(kind: ReviewNote["kind"]): string {
-	return { change: "Change", question: "Question", explain: "Explain", test: "Add test" }[kind];
-}
-
-function formatResolutionBody(note: ReviewNote): string {
-	const resolution = note.resolution;
-	if (!resolution) {
-		return "";
-	}
-	const lines = [resolution.summary ?? resolution.blockedReason ?? formatCommentStatus(note.status)];
-	if (resolution.changedFiles.length > 0) {
-		lines.push(`Changed files: ${resolution.changedFiles.join(", ")}`);
-	}
-	if (resolution.verification) {
-		lines.push(`Verified: ${resolution.verification}`);
-	}
-	return lines.join("\n\n");
+function formatCommentIntent(intent: ReviewCommentData["intent"]): string {
+	return reviewIntentPresentation[intent].label;
 }

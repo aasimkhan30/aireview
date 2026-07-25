@@ -12,6 +12,9 @@ async function run() {
 	assert.ok(commands.includes("requestchanges.openReviewPanel"));
 	assert.ok(commands.includes("requestchanges.addReviewComment"));
 	assert.ok(commands.includes("requestchanges.openSettings"));
+	assert.ok(commands.includes("requestchanges.clearResolvedComments"));
+	assert.ok(!commands.includes("requestchanges.comment.resolve"));
+	assert.ok(!commands.includes("requestchanges.comment.reopen"));
 	assert.ok(vscode.lm.tools.some((tool) => tool.name === "requestchanges"));
 	const toolResult = await vscode.lm.invokeTool("requestchanges", { input: {} });
 	assert.match(toolResult.content[0].value, /"comments": \[\]/);

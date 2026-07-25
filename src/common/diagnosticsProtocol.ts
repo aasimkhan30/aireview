@@ -16,30 +16,33 @@ export const webviewDiagnosticNames = [
 	"annotation.start.started",
 	"annotation.start.completed",
 	"annotation.start.failed",
-	"note.update.started",
-	"note.update.completed",
-	"note.update.failed",
-	"note.delete.started",
-	"note.delete.completed",
-	"note.delete.failed",
-	"note.reveal.started",
-	"note.reveal.completed",
-	"note.reveal.failed",
+	"comment.edit.started",
+	"comment.edit.completed",
+	"comment.edit.failed",
+	"comment.delete.started",
+	"comment.delete.completed",
+	"comment.delete.failed",
+	"comment.reveal.started",
+	"comment.reveal.completed",
+	"comment.reveal.failed",
 	"instructions.update.started",
 	"instructions.update.completed",
 	"instructions.update.failed",
-	"bundle.preview.started",
-	"bundle.preview.completed",
-	"bundle.preview.failed",
-	"bundle.copy.started",
-	"bundle.copy.completed",
-	"bundle.copy.failed"
+	"comments.preview.started",
+	"comments.preview.completed",
+	"comments.preview.failed",
+	"comments.copy.started",
+	"comments.copy.completed",
+	"comments.copy.failed",
+	"comments.clearResolved.started",
+	"comments.clearResolved.completed",
+	"comments.clearResolved.failed"
 ] as const;
 export type WebviewDiagnosticName = (typeof webviewDiagnosticNames)[number];
 
 export interface WebviewDiagnosticData {
 	readonly revision?: number;
-	readonly noteCount?: number;
+	readonly commentCount?: number;
 	readonly hasActiveFile?: boolean;
 	readonly errorName?: string;
 	readonly errorMessage?: string;
@@ -86,7 +89,7 @@ function normalizeData(value: unknown): WebviewDiagnosticData | undefined {
 	const data = value as WebviewDiagnosticData;
 	const normalized: WebviewDiagnosticData = {
 		revision: normalizeNonNegativeInteger(data.revision),
-		noteCount: normalizeNonNegativeInteger(data.noteCount),
+		commentCount: normalizeNonNegativeInteger(data.commentCount),
 		hasActiveFile: typeof data.hasActiveFile === "boolean" ? data.hasActiveFile : undefined,
 		errorName: normalizeString(data.errorName, 80),
 		errorMessage: normalizeString(data.errorMessage, 512)

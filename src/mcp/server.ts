@@ -4,8 +4,16 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import type { ReviewNote, ReviewNoteStatus, ReviewResolution } from "../common/reviewProtocol";
+import type { ReviewCommentStatus } from "../common/reviewProtocol";
+import { createReviewCommentRequests } from "../review/reviewBundle";
 import { getDefaultRequestChangesDataDirectory, ReviewLedger } from "../review/reviewLedger";
+import {
+	claimReviewComments,
+	completeReviewComments,
+	recoverExpiredReviewClaims,
+	type ClaimReviewCommentResult,
+	type CompleteReviewCommentResult
+} from "../review/reviewWorkflow";
 
 declare const __REQUEST_CHANGES_VERSION__: string;
 
@@ -17,7 +25,7 @@ const server = new McpServer(
 	{ name: "requestchanges", version: serverVersion },
 	{
 		instructions:
-			"Request Changes exposes human review comments on agent-written code. Use these tools only when the user explicitly asks for Request Changes or mentions requestchanges. Read open comments with the requestchanges tool, edit code using the client's normal coding tools, run appropriate verification, then report every comment as addressed or blocked. After all comments are reported, send the user a final response summarizing each individual comment and whether it was addressed or blocked. Addressed comments still require human acceptance."
+			"Request Changes exposes one-shot human review comments. Read open comments, claim only the exact IDs and versions you will process, perform the work, and complete each claimed comment exactly once as resolved or unresolved. A terminal comment never becomes active again. After completing the selected comments, send the user a concise summary of each result."
 	}
 );
 
@@ -32,126 +40,99 @@ server.registerTool(
 	{
 		title: "Request Changes review comments",
 		description:
-			"Read open review comments and overall instructions for agent-written code in this workspace. Invoke only when the user explicitly asks for Request Changes or references #requestchanges.",
+			"Read open review comments and overall instructions for agent-written code in this workspace. Working and terminal comments are excluded.",
 		inputSchema: workspaceSchema,
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 	},
 	async ({ workspaceRoot }) => {
-		const state = await (await getLedger(workspaceRoot)).read();
-		return textResult(
-			formatReviewContext(
-				state.notes.filter((note) => isActionable(note.status)),
-				state
-			)
-		);
+		const ledger = await getLedger(workspaceRoot);
+		const state = await recoverExpiredClaims(ledger);
+		return textResult(formatReviewContext(state));
 	}
 );
+
+const claimInputSchema = z
+	.object({
+		commentId: z.string().min(1),
+		expectedVersion: z.number().int().positive()
+	})
+	.strict();
 
 server.registerTool(
 	"claim_review_comments",
 	{
 		title: "Claim review comments",
-		description: "Mark open review comments as in progress before addressing them.",
-		inputSchema: workspaceSchema.extend({ commentIds: z.array(z.string().min(1)).optional() }),
-		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+		description:
+			"Claim explicit open review comment IDs and versions before processing them. Omitted or empty selections are rejected.",
+		inputSchema: workspaceSchema.extend({ comments: z.array(claimInputSchema).min(1).max(100) }),
+		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
 	},
-	async ({ workspaceRoot, commentIds }) => {
+	async ({ workspaceRoot, comments }) => {
 		const ledger = await getLedger(workspaceRoot);
-		const now = new Date().toISOString();
-		const state = await ledger.mutate((current) => ({
-			...current,
-			notes: current.notes.map((note) =>
-				isSelected(note, commentIds) && isActionable(note.status)
-					? {
-							...note,
-							status: "in_progress",
-							resolution: { client: clientName, changedFiles: [], updatedAt: now },
-							updatedAt: now
-						}
-					: note
-			)
-		}));
-		return textResult(JSON.stringify(summarizeState(state.notes), undefined, 2));
+		let results: readonly ClaimReviewCommentResult[] = [];
+		await ledger.mutate((current) => {
+			const outcome = claimReviewComments(current, comments, clientName);
+			results = outcome.results;
+			return outcome.state;
+		});
+		return textResult(JSON.stringify({ results }, undefined, 2));
 	}
 );
 
-const addressedResultSchema = z
+const resolvedCompletionSchema = z
 	.object({
 		commentId: z.string().min(1),
+		expectedVersion: z.number().int().positive(),
+		claimToken: z.string().min(1),
+		outcome: z.literal("resolved"),
 		summary: z.string().min(1).max(10_000),
 		changedFiles: z.array(z.string().min(1)).max(200).default([]),
-		verification: z.string().max(10_000).optional()
+		verification: z.string().max(10_000).optional(),
+		limitations: z.string().max(10_000).optional()
+	})
+	.strict();
+
+const unresolvedCompletionSchema = z
+	.object({
+		commentId: z.string().min(1),
+		expectedVersion: z.number().int().positive(),
+		claimToken: z.string().min(1),
+		outcome: z.literal("unresolved"),
+		reason: z.enum([
+			"missing_requirement",
+			"missing_resource",
+			"missing_permission",
+			"target_unavailable",
+			"unsafe_change",
+			"environment_failure"
+		]),
+		explanation: z.string().min(1).max(10_000),
+		suggestedNewComment: z.string().max(10_000).optional()
 	})
 	.strict();
 
 server.registerTool(
-	"report_comments_addressed",
+	"complete_review_comments",
 	{
-		title: "Report review comments addressed",
-		description:
-			"Report review comments as addressed after making and verifying the requested code changes. This does not resolve the comments; a human accepts them in Request Changes.",
-		inputSchema: workspaceSchema.extend({ results: z.array(addressedResultSchema).min(1).max(100) }),
+		title: "Complete review comments",
+		description: "Report exactly one terminal resolved or unresolved result for each claimed review comment.",
+		inputSchema: workspaceSchema.extend({
+			results: z
+				.array(z.discriminatedUnion("outcome", [resolvedCompletionSchema, unresolvedCompletionSchema]))
+				.min(1)
+				.max(100)
+		}),
 		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 	},
-	async ({ workspaceRoot, results }) => {
+	async ({ workspaceRoot, results: completionInputs }) => {
 		const ledger = await getLedger(workspaceRoot);
-		const resultById = new Map(results.map((result) => [result.commentId, result]));
-		const now = new Date().toISOString();
-		const state = await ledger.mutate((current) => ({
-			...current,
-			notes: current.notes.map((note) => {
-				const result = resultById.get(note.id);
-				if (!result) {
-					return note;
-				}
-				const resolution: ReviewResolution = {
-					client: clientName,
-					summary: result.summary,
-					changedFiles: result.changedFiles,
-					verification: result.verification,
-					updatedAt: now
-				};
-				return { ...note, status: "addressed", resolution, updatedAt: now };
-			})
-		}));
-		return textResult(JSON.stringify(summarizeState(state.notes), undefined, 2));
-	}
-);
-
-const blockedResultSchema = z.object({ commentId: z.string().min(1), reason: z.string().min(1).max(10_000) }).strict();
-
-server.registerTool(
-	"report_comments_blocked",
-	{
-		title: "Report review comments blocked",
-		description: "Report review comments that could not be addressed and explain the blocking condition.",
-		inputSchema: workspaceSchema.extend({ results: z.array(blockedResultSchema).min(1).max(100) }),
-		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
-	},
-	async ({ workspaceRoot, results }) => {
-		const ledger = await getLedger(workspaceRoot);
-		const resultById = new Map(results.map((result) => [result.commentId, result]));
-		const now = new Date().toISOString();
-		const state = await ledger.mutate((current) => ({
-			...current,
-			notes: current.notes.map((note) => {
-				const result = resultById.get(note.id);
-				return result
-					? {
-							...note,
-							status: "blocked",
-							resolution: {
-								client: clientName,
-								changedFiles: [],
-								blockedReason: result.reason,
-								updatedAt: now
-							},
-							updatedAt: now
-						}
-					: note;
-			})
-		}));
-		return textResult(JSON.stringify(summarizeState(state.notes), undefined, 2));
+		let results: readonly CompleteReviewCommentResult[] = [];
+		await ledger.mutate((current) => {
+			const outcome = completeReviewComments(current, completionInputs, clientName);
+			results = outcome.results;
+			return outcome.state;
+		});
+		return textResult(JSON.stringify({ results }, undefined, 2));
 	}
 );
 
@@ -159,13 +140,16 @@ server.registerTool(
 	"get_review_status",
 	{
 		title: "Get review status",
-		description: "Return counts and outcomes for review comments in the current workspace.",
+		description: "Return counts for review comments in the current workspace.",
 		inputSchema: workspaceSchema,
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 	},
 	async ({ workspaceRoot }) => {
-		const state = await (await getLedger(workspaceRoot)).read();
-		return textResult(JSON.stringify({ revision: state.revision, ...summarizeState(state.notes) }, undefined, 2));
+		const ledger = await getLedger(workspaceRoot);
+		const state = await recoverExpiredClaims(ledger);
+		return textResult(
+			JSON.stringify({ revision: state.revision, ...summarizeState(state.comments) }, undefined, 2)
+		);
 	}
 );
 
@@ -178,14 +162,8 @@ server.registerResource(
 		mimeType: "application/json"
 	},
 	async (uri) => {
-		const state = await (await getLedger()).read();
-		return resourceResult(
-			uri,
-			formatReviewContext(
-				state.notes.filter((note) => isActionable(note.status)),
-				state
-			)
-		);
+		const state = await recoverExpiredClaims(await getLedger());
+		return resourceResult(uri, formatReviewContext(state));
 	}
 );
 
@@ -194,17 +172,17 @@ server.registerResource(
 	new ResourceTemplate("requestchanges://comments/{commentId}", { list: undefined }),
 	{ title: "Review comment", description: "A single Request Changes review comment", mimeType: "application/json" },
 	async (uri, variables) => {
-		const state = await (await getLedger()).read();
-		const note = state.notes.find((candidate) => candidate.id === String(variables.commentId));
-		return resourceResult(uri, JSON.stringify(note ?? { error: "Review comment not found" }, undefined, 2));
+		const state = await recoverExpiredClaims(await getLedger());
+		const comment = state.comments.find((candidate) => candidate.id === String(variables.commentId));
+		return resourceResult(uri, JSON.stringify(comment ?? { error: "Review comment not found" }, undefined, 2));
 	}
 );
 
 server.registerPrompt(
-	"address_review_comments",
+	"resolve_review_comments",
 	{
-		title: "Address review comments",
-		description: "Implement all requested changes and report the outcome of each review comment"
+		title: "Resolve review comments",
+		description: "Process open comments and report one terminal result for each claimed comment"
 	},
 	async () => ({
 		messages: [
@@ -212,12 +190,18 @@ server.registerPrompt(
 				role: "user",
 				content: {
 					type: "text",
-					text: "Use the requestchanges tool to read all open review comments. Claim them, implement each requested change with your normal coding tools, run relevant verification, and report every comment as addressed or blocked. After reporting all comments, finish with a concise summary of each individual comment and whether it was addressed or blocked. Do not resolve comments; human acceptance happens in the Request Changes extension."
+					text: "Use the requestchanges tool to read open review comments. Claim only the exact IDs and versions you will process, perform each request with your normal coding tools, run relevant verification, and complete every claimed comment exactly once as resolved or unresolved. Do not process comments that were not selected for this task. Finish with a concise summary of each individual comment and its result."
 				}
 			}
 		]
 	})
 );
+
+async function recoverExpiredClaims(ledger: ReviewLedger) {
+	const current = await ledger.read();
+	const recovered = recoverExpiredReviewClaims(current);
+	return recovered.recoveredCount ? ledger.mutate((latest) => recoverExpiredReviewClaims(latest).state) : current;
+}
 
 async function getLedger(workspaceRoot?: string): Promise<ReviewLedger> {
 	return ReviewLedger.open(
@@ -254,44 +238,35 @@ async function getClientRoots(): Promise<string[]> {
 	}
 }
 
-function formatReviewContext(
-	comments: readonly ReviewNote[],
-	state: Awaited<ReturnType<ReviewLedger["read"]>>
-): string {
+function formatReviewContext(state: Awaited<ReturnType<ReviewLedger["read"]>>): string {
+	const comments = state.comments.filter((comment) => comment.status === "open");
 	return JSON.stringify(
 		{
 			workspace: state.workspace,
 			revision: state.revision,
 			overallInstructions: state.effectiveInstructions,
 			commentCount: comments.length,
-			comments
+			comments: createReviewCommentRequests(comments)
 		},
 		undefined,
 		2
 	);
 }
 
-function summarizeState(notes: readonly ReviewNote[]): Record<ReviewNoteStatus | "total", number> {
-	const summary: Record<ReviewNoteStatus | "total", number> = {
-		total: notes.length,
-		draft: 0,
+function summarizeState(
+	comments: Awaited<ReturnType<ReviewLedger["read"]>>["comments"]
+): Record<ReviewCommentStatus | "total", number> {
+	const summary: Record<ReviewCommentStatus | "total", number> = {
+		total: comments.length,
+		open: 0,
 		in_progress: 0,
-		addressed: 0,
-		blocked: 0,
-		resolved: 0
+		resolved: 0,
+		unresolved: 0
 	};
-	for (const note of notes) {
-		summary[note.status] += 1;
+	for (const comment of comments) {
+		summary[comment.status] += 1;
 	}
 	return summary;
-}
-
-function isSelected(note: ReviewNote, commentIds: readonly string[] | undefined): boolean {
-	return !commentIds || commentIds.length === 0 || commentIds.includes(note.id);
-}
-
-function isActionable(status: ReviewNoteStatus): boolean {
-	return status === "draft" || status === "in_progress" || status === "blocked";
 }
 
 function textResult(text: string) {

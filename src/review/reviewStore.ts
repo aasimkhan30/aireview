@@ -1,4 +1,4 @@
-import type { ReviewNote, ReviewResolution } from "../common/reviewProtocol";
+import type { EditOpenCommentParams, ReviewAnchor, ReviewAnchorState, ReviewComment } from "../common/reviewProtocol";
 import { Emitter, type Event } from "../common/emitter";
 import { IDiagnosticsService } from "../diagnostics/diagnosticsService";
 import { IExtensionContextService } from "../services/extensionContextService";
@@ -10,34 +10,37 @@ import {
 	type ReviewLedgerLocation,
 	type ReviewLedgerState
 } from "./reviewLedger";
-import { isReviewNote } from "./reviewValidation";
+import { isReviewAnchor, isReviewComment, isReviewCommentIntent } from "./reviewValidation";
 
 const legacyReviewStateStorageKey = "requestchanges.reviewState";
 
-export type PersistedReviewStateV3 = ReviewLedgerState;
+export type PersistedReviewStateV4 = ReviewLedgerState;
 
 export const IReviewStore = createServiceIdentifier<IReviewStore>("reviewStore");
 
 export interface IReviewStore {
 	readonly _serviceBrand: undefined;
-	readonly onDidChange: Event<PersistedReviewStateV3>;
-	getState(): Promise<PersistedReviewStateV3>;
+	readonly onDidChange: Event<PersistedReviewStateV4>;
+	getState(): Promise<PersistedReviewStateV4>;
 	getLocation(): Promise<ReviewLedgerLocation>;
-	addNote(note: ReviewNote): Promise<void>;
-	updateNote(note: ReviewNote): Promise<boolean>;
-	deleteNote(id: string): Promise<boolean>;
+	addComment(comment: ReviewComment): Promise<void>;
+	editOpenComment(input: EditOpenCommentParams): Promise<boolean>;
+	updateCommentAnchor(id: string, anchor: ReviewAnchor, anchorState: ReviewAnchorState): Promise<boolean>;
+	deleteComment(id: string): Promise<boolean>;
+	clearResolvedComments(): Promise<number>;
+	recoverExpiredClaims(now?: Date): Promise<number>;
 	setEffectiveInstructions(value: string): Promise<void>;
 }
 
 export class ReviewStore extends Disposable implements IReviewStore {
 	declare readonly _serviceBrand: undefined;
 
-	private readonly changeEmitter = this._register(new Emitter<PersistedReviewStateV3>());
+	private readonly changeEmitter = this._register(new Emitter<PersistedReviewStateV4>());
 	readonly onDidChange = this.changeEmitter.event;
 
-	private state: PersistedReviewStateV3 | undefined;
+	private state: PersistedReviewStateV4 | undefined;
 	private ledgerPromise: Promise<ReviewLedger> | undefined;
-	private loadingState: Promise<PersistedReviewStateV3> | undefined;
+	private loadingState: Promise<PersistedReviewStateV4> | undefined;
 	private mutationQueue: Promise<void> = Promise.resolve();
 
 	constructor(
@@ -47,14 +50,17 @@ export class ReviewStore extends Disposable implements IReviewStore {
 		super();
 	}
 
-	async getState(): Promise<PersistedReviewStateV3> {
+	async getState(): Promise<PersistedReviewStateV4> {
 		const operation = this.diagnostics.startOperation("reviewStore", "state.get");
 		try {
 			await this.mutationQueue;
 			const ledger = await this.getLedger();
-			const state = await ledger.read(await this.getMigrationState(ledger));
+			let state = await ledger.read(await this.getMigrationState(ledger));
+			if (hasExpiredClaims(state.comments, new Date())) {
+				state = await ledger.mutate((current) => recoverClaims(current, new Date()).state);
+			}
 			this.acceptState(state);
-			operation.complete(() => ({ noteCount: state.notes.length, ledgerRevision: state.revision }));
+			operation.complete(() => ({ commentCount: state.comments.length, ledgerRevision: state.revision }));
 			return state;
 		} catch (error) {
 			operation.fail(error);
@@ -66,36 +72,94 @@ export class ReviewStore extends Disposable implements IReviewStore {
 		return (await this.getLedger()).location;
 	}
 
-	async addNote(note: ReviewNote): Promise<void> {
-		const operation = this.diagnostics.startOperation("reviewStore", "note.add");
+	async addComment(comment: ReviewComment): Promise<void> {
+		const operation = this.diagnostics.startOperation("reviewStore", "comment.add");
 		try {
-			await this.enqueueMutation((current) => ({ ...current, notes: [note, ...current.notes] }));
-			operation.complete(() => ({ noteId: note.id }));
+			await this.enqueueMutation((current) => ({
+				...current,
+				comments: [comment, ...current.comments]
+			}));
+			operation.complete(() => ({ commentId: comment.id }));
 		} catch (error) {
-			operation.fail(error, () => ({ noteId: note.id }));
+			operation.fail(error, () => ({ commentId: comment.id }));
 			throw error;
 		}
 	}
 
-	updateNote(note: ReviewNote): Promise<boolean> {
+	editOpenComment(input: EditOpenCommentParams): Promise<boolean> {
+		if (!input.body.trim()) {
+			return Promise.reject(new Error("Review comment body is required"));
+		}
 		return this.enqueueMutationWithResult((current) => {
-			const index = current.notes.findIndex((candidate) => candidate.id === note.id);
+			const index = current.comments.findIndex((candidate) => candidate.id === input.id);
 			if (index < 0) {
 				return { state: current, result: false };
 			}
-			const notes = [...current.notes];
-			notes[index] = note;
-			return { state: { ...current, notes }, result: true };
+			const comment = current.comments[index];
+			if (comment.status !== "open") {
+				throw new Error("Only open review comments can be edited");
+			}
+			if (comment.version !== input.expectedVersion) {
+				throw new Error("This review comment changed; refresh and try again");
+			}
+			const comments = [...current.comments];
+			comments[index] = {
+				...comment,
+				version: comment.version + 1,
+				body: input.body.trim(),
+				intent: input.intent,
+				updatedAt: new Date().toISOString()
+			};
+			return { state: { ...current, comments }, result: true };
 		});
 	}
 
-	deleteNote(id: string): Promise<boolean> {
+	updateCommentAnchor(id: string, anchor: ReviewAnchor, anchorState: ReviewAnchorState): Promise<boolean> {
 		return this.enqueueMutationWithResult((current) => {
-			const notes = current.notes.filter((note) => note.id !== id);
-			return notes.length === current.notes.length
-				? { state: current, result: false }
-				: { state: { ...current, notes }, result: true };
+			const index = current.comments.findIndex((candidate) => candidate.id === id);
+			if (index < 0) {
+				return { state: current, result: false };
+			}
+			const comments = [...current.comments];
+			comments[index] = {
+				...comments[index],
+				anchor,
+				anchorState,
+				updatedAt: new Date().toISOString()
+			};
+			return { state: { ...current, comments }, result: true };
 		});
+	}
+
+	deleteComment(id: string): Promise<boolean> {
+		return this.enqueueMutationWithResult((current) => {
+			const comment = current.comments.find((candidate) => candidate.id === id);
+			if (!comment) {
+				return { state: current, result: false };
+			}
+			if (comment.status === "in_progress") {
+				throw new Error("A working review comment cannot be deleted");
+			}
+			return {
+				state: { ...current, comments: current.comments.filter((candidate) => candidate.id !== id) },
+				result: true
+			};
+		});
+	}
+
+	clearResolvedComments(): Promise<number> {
+		return this.enqueueMutationWithResult((current) => {
+			const comments = current.comments.filter((comment) => comment.status !== "resolved");
+			const clearedCount = current.comments.length - comments.length;
+			return {
+				state: clearedCount === 0 ? current : { ...current, comments },
+				result: clearedCount
+			};
+		});
+	}
+
+	recoverExpiredClaims(now = new Date()): Promise<number> {
+		return this.enqueueMutationWithResult((current) => recoverClaims(current, now));
 	}
 
 	async setEffectiveInstructions(value: string): Promise<void> {
@@ -105,19 +169,20 @@ export class ReviewStore extends Disposable implements IReviewStore {
 		}
 	}
 
-	private enqueueMutation(operation: (current: PersistedReviewStateV3) => PersistedReviewStateV3): Promise<void> {
+	private enqueueMutation(operation: (current: PersistedReviewStateV4) => PersistedReviewStateV4): Promise<void> {
 		return this.enqueueMutationWithResult((current) => ({ state: operation(current), result: undefined }));
 	}
 
 	private enqueueMutationWithResult<T>(
-		operation: (current: PersistedReviewStateV3) => { state: PersistedReviewStateV3; result: T }
+		operation: (current: PersistedReviewStateV4) => { state: PersistedReviewStateV4; result: T }
 	): Promise<T> {
 		const result = this.mutationQueue.then(async () => {
 			const ledger = await this.getLedger();
 			await ledger.read(await this.getMigrationState(ledger));
 			let operationResult: T | undefined;
 			const next = await ledger.mutate((current) => {
-				const outcome = operation(current);
+				const recovered = recoverClaims(current, new Date()).state;
+				const outcome = operation(recovered);
 				operationResult = outcome.result;
 				return outcome.state;
 			});
@@ -137,11 +202,7 @@ export class ReviewStore extends Disposable implements IReviewStore {
 			const workspaceRoot = this.extensionContextService.workspaceRoots[0] ?? process.cwd();
 			this.ledgerPromise = ReviewLedger.open(workspaceRoot, this.extensionContextService.dataDirectory).then(
 				(ledger) => {
-					this._register(
-						ledger.watch(() => {
-							void this.refreshFromLedger(ledger);
-						})
-					);
+					this._register(ledger.watch(() => void this.refreshFromLedger(ledger)));
 					return ledger;
 				}
 			);
@@ -158,85 +219,113 @@ export class ReviewStore extends Disposable implements IReviewStore {
 		}
 	}
 
-	private acceptState(state: PersistedReviewStateV3): void {
+	private acceptState(state: PersistedReviewStateV4): void {
 		if (!this.state || state.revision > this.state.revision) {
 			this.state = state;
 			this.changeEmitter.fire(state);
 		}
 	}
 
-	private getMigrationState(ledger: ReviewLedger): Promise<PersistedReviewStateV3> {
+	private getMigrationState(ledger: ReviewLedger): Promise<PersistedReviewStateV4> {
 		if (!this.loadingState) {
 			this.loadingState = this.createMigrationState(ledger);
 		}
 		return this.loadingState;
 	}
 
-	private async createMigrationState(ledger: ReviewLedger): Promise<PersistedReviewStateV3> {
+	private async createMigrationState(ledger: ReviewLedger): Promise<PersistedReviewStateV4> {
 		const base = createEmptyReviewLedgerState(ledger.workspaceRoot);
 		const legacy = this.extensionContextService.context.workspaceState.get<unknown>(legacyReviewStateStorageKey);
-		const migrated = normalizeLegacyState(legacy, base);
-		if (migrated.notes.length > 0 || migrated.effectiveInstructions) {
+		const migrated = normalizeLegacyWorkspaceState(legacy, base);
+		if (migrated.comments.length > 0 || migrated.effectiveInstructions) {
 			this.diagnostics.info("reviewStore", "state.migrationPrepared", () => ({
-				noteCount: migrated.notes.length
+				commentCount: migrated.comments.length
 			}));
 		}
 		return migrated;
 	}
 }
 
-function normalizeLegacyState(value: unknown, base: PersistedReviewStateV3): PersistedReviewStateV3 {
+function recoverClaims(current: PersistedReviewStateV4, now: Date): { state: PersistedReviewStateV4; result: number } {
+	let recoveredCount = 0;
+	const comments = current.comments.map((comment) => {
+		if (comment.status !== "in_progress" || !comment.claim || Date.parse(comment.claim.expiresAt) > now.getTime()) {
+			return comment;
+		}
+		recoveredCount += 1;
+		return {
+			...comment,
+			status: "open" as const,
+			claim: undefined,
+			updatedAt: now.toISOString()
+		};
+	});
+	return {
+		state: recoveredCount === 0 ? current : { ...current, comments },
+		result: recoveredCount
+	};
+}
+
+function hasExpiredClaims(comments: readonly ReviewComment[], now: Date): boolean {
+	return comments.some(
+		(comment) =>
+			comment.status === "in_progress" &&
+			Boolean(comment.claim) &&
+			Date.parse(comment.claim!.expiresAt) <= now.getTime()
+	);
+}
+
+function normalizeLegacyWorkspaceState(value: unknown, base: PersistedReviewStateV4): PersistedReviewStateV4 {
 	if (!value || typeof value !== "object") {
 		return base;
 	}
 	const state = value as {
-		version?: unknown;
 		notes?: unknown;
+		comments?: unknown;
 		overallInstructions?: unknown;
 		selectedTarget?: unknown;
 	};
-	const notes = Array.isArray(state.notes)
-		? state.notes.flatMap((note) => {
-				const normalized = normalizeLegacyNote(note);
-				return normalized ? [normalized] : [];
-			})
-		: [];
+	const records = Array.isArray(state.comments) ? state.comments : Array.isArray(state.notes) ? state.notes : [];
+	const comments = records.flatMap((record) => {
+		const normalized = normalizeLegacyWorkspaceComment(record);
+		return normalized ? [normalized] : [];
+	});
 	return {
 		...base,
-		notes,
+		comments,
 		effectiveInstructions: typeof state.overallInstructions === "string" ? state.overallInstructions : "",
 		selectedTarget: state.selectedTarget === "copilot" ? "copilot" : "codex"
 	};
 }
 
-function normalizeLegacyNote(value: unknown): ReviewNote | undefined {
-	if (isReviewNote(value)) {
+function normalizeLegacyWorkspaceComment(value: unknown): ReviewComment | undefined {
+	if (isReviewComment(value)) {
 		return value;
 	}
 	if (!value || typeof value !== "object") {
 		return undefined;
 	}
-	const note = value as Omit<Partial<ReviewNote>, "status"> & { status?: unknown };
-	if (typeof note.id !== "string" || typeof note.body !== "string" || typeof note.createdAt !== "string") {
+	const old = value as Record<string, unknown>;
+	if (typeof old.id !== "string" || typeof old.body !== "string" || typeof old.createdAt !== "string") {
 		return undefined;
 	}
-	const updatedAt = typeof note.updatedAt === "string" ? note.updatedAt : note.createdAt;
-	const sentResolution: ReviewResolution | undefined =
-		note.status === "sent"
-			? { client: "legacy handoff", changedFiles: [], summary: "Previously sent to an agent", updatedAt }
-			: undefined;
+	const intentValue = old.intent ?? old.kind;
+	const intent = isReviewCommentIntent(intentValue) ? intentValue : "change";
+	const updatedAt = typeof old.updatedAt === "string" ? old.updatedAt : old.createdAt;
+	const anchor = isReviewAnchor(old.anchor) ? old.anchor : undefined;
+	const anchorState =
+		old.anchorState === "attached" || old.anchorState === "moved" || old.anchorState === "orphaned"
+			? old.anchorState
+			: "orphaned";
 	return {
-		id: note.id,
-		body: note.body,
-		kind: note.kind === "question" || note.kind === "explain" || note.kind === "test" ? note.kind : "change",
-		status: note.status === "resolved" ? "resolved" : note.status === "sent" ? "addressed" : "draft",
-		anchor: note.anchor,
-		anchorState:
-			note.anchorState === "attached" || note.anchorState === "moved" || note.anchorState === "orphaned"
-				? note.anchorState
-				: "orphaned",
-		resolution: note.resolution ?? sentResolution,
-		createdAt: note.createdAt,
+		id: old.id,
+		version: 1,
+		body: old.body,
+		intent,
+		status: "open",
+		anchor,
+		anchorState,
+		createdAt: old.createdAt,
 		updatedAt
 	};
 }

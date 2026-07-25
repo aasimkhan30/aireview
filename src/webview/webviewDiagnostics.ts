@@ -27,12 +27,13 @@ export class WebviewDiagnostics {
 			| "state.load"
 			| "state.refresh"
 			| "annotation.start"
-			| "note.update"
-			| "note.delete"
-			| "note.reveal"
+			| "comment.edit"
+			| "comment.delete"
+			| "comment.reveal"
 			| "instructions.update"
-			| "bundle.preview"
-			| "bundle.copy"
+			| "comments.preview"
+			| "comments.copy"
+			| "comments.clearResolved"
 	): WebviewDiagnosticOperation {
 		const correlationId = createCorrelationId();
 		const startedAt = performance.now();

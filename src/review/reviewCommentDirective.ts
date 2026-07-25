@@ -1,8 +1,8 @@
-import type { ReviewNoteKind } from "../common/reviewProtocol";
+import type { ReviewCommentIntent } from "../common/reviewProtocol";
 
 export interface ReviewCommentDirective {
 	readonly keyword: "change" | "question" | "explain" | "addTest";
-	readonly kind: ReviewNoteKind;
+	readonly kind: ReviewCommentIntent;
 	readonly detail: string;
 }
 
@@ -15,20 +15,20 @@ export const reviewCommentDirectives: readonly ReviewCommentDirective[] = [
 
 export interface ParsedReviewComment {
 	readonly body: string;
-	readonly kind: ReviewNoteKind;
+	readonly kind: ReviewCommentIntent;
 	readonly hadDirective: boolean;
 }
 
 const directiveStart = /^\s*#requestchanges:/iu;
 const directive = /^\s*#requestchanges:([^\s]+)(?:[ \t]+|\r?\n|$)/iu;
 
-export function parseReviewComment(value: string, defaultKind: ReviewNoteKind = "change"): ParsedReviewComment {
+export function parseReviewComment(value: string, defaultIntent: ReviewCommentIntent = "change"): ParsedReviewComment {
 	const match = directive.exec(value);
 	if (!match) {
 		if (directiveStart.test(value)) {
 			throw new Error(directiveHelp("Invalid Request Changes type directive"));
 		}
-		return { body: value.trim(), kind: defaultKind, hadDirective: false };
+		return { body: value.trim(), kind: defaultIntent, hadDirective: false };
 	}
 
 	const selected = reviewCommentDirectives.find(

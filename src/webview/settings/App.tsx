@@ -366,16 +366,16 @@ const integrationUsage: Readonly<
 			"Send this prompt:"
 		],
 		invocation:
-			"Use the requestchanges MCP server to read all open review comments, implement them, run relevant tests, report each comment as addressed or blocked, and finish with a concise summary of each comment."
+			"Use the requestchanges MCP server to read open review comments, claim the exact IDs and versions you will process, perform each request, run relevant verification, complete every claimed comment as resolved or unresolved, and finish with a concise summary of each result."
 	},
 	claude: {
 		steps: ["Start a new Claude Code session in the reviewed workspace, then run the MCP prompt:"],
-		invocation: "/mcp__requestchanges__address_review_comments"
+		invocation: "/mcp__requestchanges__resolve_review_comments"
 	},
 	copilotCli: {
 		steps: ["Start a new Copilot CLI session in the reviewed workspace, then ask:"],
 		invocation:
-			"Use the requestchanges MCP server to fix the open review comments, then summarize each comment and whether it was addressed or blocked."
+			"Use the requestchanges MCP server to process the selected open review comments, then summarize each resolved or unresolved result."
 	},
 	copilotVscode: {
 		steps: ["Open Copilot Chat in Agent mode for this workspace, then ask:"],

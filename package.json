@@ -39,7 +39,7 @@
           "default": "",
           "scope": "resource",
           "editPresentation": "multilineText",
-          "markdownDescription": "Default instructions included whenever an agent addresses your review comments. A workspace value overrides the user value."
+          "markdownDescription": "Default instructions included whenever an agent processes your review comments. A workspace value overrides the user value."
         }
       }
     },
@@ -54,7 +54,7 @@
         "name": "requestchanges",
         "displayName": "Request Changes",
         "userDescription": "Read open review comments for agent-written code.",
-        "modelDescription": "Read open review comments and overall instructions from Request Changes. Use only when the user explicitly asks for Request Changes or references #requestchanges. After addressing comments, summarize each individual comment and whether it was addressed or blocked.",
+        "modelDescription": "Read open review comments and overall instructions from Request Changes. Use only when the user explicitly asks for Request Changes or references #requestchanges. After processing selected comments, summarize each resolved or unresolved result.",
         "inputSchema": {
           "type": "object",
           "properties": {},
@@ -100,14 +100,9 @@
         "icon": "$(trash)"
       },
       {
-        "command": "requestchanges.comment.resolve",
-        "title": "Resolve",
-        "icon": "$(check)"
-      },
-      {
-        "command": "requestchanges.comment.reopen",
-        "title": "Reopen",
-        "icon": "$(history)"
+        "command": "requestchanges.clearResolvedComments",
+        "title": "Request Changes: Clear Resolved Comments",
+        "enablement": "requestchanges.hasResolvedComments"
       }
     ],
     "menus": {
@@ -130,14 +125,6 @@
         },
         {
           "command": "requestchanges.comment.delete",
-          "when": "false"
-        },
-        {
-          "command": "requestchanges.comment.resolve",
-          "when": "false"
-        },
-        {
-          "command": "requestchanges.comment.reopen",
           "when": "false"
         }
       ],
@@ -167,45 +154,28 @@
           "when": "commentController == requestchanges.comments && commentThreadIsEmpty"
         }
       ],
-      "comments/commentThread/title": [
-        {
-          "command": "requestchanges.comment.resolve",
-          "group": "navigation@1",
-          "when": "commentController == requestchanges.comments && commentThread == requestchanges.unresolved"
-        },
-        {
-          "command": "requestchanges.comment.reopen",
-          "group": "navigation@1",
-          "when": "commentController == requestchanges.comments && commentThread == requestchanges.resolved"
-        },
-        {
-          "command": "requestchanges.comment.delete",
-          "group": "navigation@2",
-          "when": "commentController == requestchanges.comments && !commentThreadIsEmpty"
-        }
-      ],
       "comments/comment/title": [
         {
           "command": "requestchanges.comment.edit",
           "group": "navigation@1",
-          "when": "commentController == requestchanges.comments && comment == requestchanges.note"
+          "when": "commentController == requestchanges.comments && comment == requestchanges.openComment"
         },
         {
           "command": "requestchanges.comment.delete",
           "group": "navigation@2",
-          "when": "commentController == requestchanges.comments && comment == requestchanges.note"
+          "when": "commentController == requestchanges.comments && (comment == requestchanges.openComment || comment == requestchanges.terminalComment)"
         }
       ],
       "comments/comment/context": [
         {
           "command": "requestchanges.comment.cancelEdit",
           "group": "inline@1",
-          "when": "commentController == requestchanges.comments && comment == requestchanges.note"
+          "when": "commentController == requestchanges.comments && comment == requestchanges.openComment"
         },
         {
           "command": "requestchanges.comment.save",
           "group": "inline@2",
-          "when": "commentController == requestchanges.comments && comment == requestchanges.note"
+          "when": "commentController == requestchanges.comments && comment == requestchanges.openComment"
         }
       ]
     },
